@@ -1,0 +1,260 @@
+\chapter{元学习}
+\label{chap:meta}
+\begin{quote}\small
+\textit{本章摘要。}元学习在一组任务上优化学习过程，使新任务能够用少量数据完成适应。本章从支持集、查询集和任务分布出发，分别推导度量方法、梯度初始化与学习优化器，再比较一阶近似、隐式梯度和概率变体。少样本只是常见应用，任务级泛化才是评价核心。
+\end{quote}
+
+上一章利用样本几何学习表示，但即使表示合理，新设备仍可能只有极少标注数据。普通迁移学习先学一个模型再微调；元学习更进一步，把“看到少量样本之后如何学习”本身作为训练对象。这里被共享的不是所有任务的同一个最优参数，而是比较规则、初始化、更新器或先验，使不同任务能够以较低代价形成各自的预测器。
+
+可以把每台新设备的适应过程看成一次练习：支持集是允许先看的少量已标注记录，查询集用来检查适应后的效果。训练时重复经历多个任务，才学出共享的元参数。下面先介绍不更新全部参数的度量方法，再用链式法则推导 Model-Agnostic Meta-Learning (MAML) 及其近似，最后讨论学习优化器和概率适应。作为全书最后一章，这里仍要回到最初的检查：测试任务是否真的没见过，查询标签是否参与了适应？这些条件不成立，少样本高分也不能说明模型会适应新任务。
+
+\section{任务分布与双层目标}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.75cm and 0.7cm]
+ \node[idi input, minimum width=1.9cm] (task) {采样任务\\$\mathcal T_i$};
+ \node[idi state, right=of task, minimum width=1.9cm] (support) {支持集\\$S_i$};
+ \node[idi process, right=of support, minimum width=1.9cm] (adapt) {任务内适应\\$U_\phi(S_i)$};
+ \node[idi output, right=of adapt, minimum width=1.9cm] (query) {查询集\\$Q_i$};
+ \draw[idi arrow] (task)--(support); \draw[idi arrow] (support)--(adapt); \draw[idi arrow] (adapt)--(query);
+ \draw[idi feedback] (query.south) .. controls +(0,-0.42) and +(0,-0.42) .. node[below,font=\scriptsize]{外循环更新 $\phi$} (task.south);
+\end{tikzpicture}
+\caption{元学习的双层结构：支持集用于适应，查询集评价适应后的模型并更新元参数。}
+\label{fig:meta-support-query}
+\end{figure}
+图\ref{fig:meta-support-query}将支持集上的任务内适应与查询集上的外层更新分开；查询误差衡量的是适应后的泛化，而不是支持集拟合程度。
+任务$\mathcal T\sim p(\mathcal T)$包含支持集$S$与查询集$Q$。支持集用于任务内适应，查询集用于评价适应结果。设适应算子为$U_\phi(S)$，元目标为
+\begin{equation}
+ \min_\phi\E_{\mathcal T}\left[\mathcal L_Q(U_\phi(S))\right].
+\end{equation}
+元参数可以是编码器、初始化、更新规则或概率先验\cite{hospedales2022meta}。元训练查询集提供外循环梯度，元测试查询标签则只能用于最终评价。把所有任务样本混合做监督训练是多任务或预训练基线，不等同于上述适应后目标。
+
+$N$-way $K$-shot 表示每个任务有$N$个类别、每类$K$个支持样本。闭集分类中的$1$-way只需输出唯一类别，不能作为有意义的分类难度；单类故障检测需要另设正常参考、未知类别和拒识阈值。工业任务应按设备、批次或工况定义，并明确新任务的类别是否与元训练重合。
+
+\paragraph{为什么必须在任务内划分支持与查询。}
+令元参数$\phi\in\R^p$，适应后参数$U_\phi(S)\in\R^d$；两者维度未必相同。训练批包含$B$个任务时，经验元目标为
+\begin{equation}
+ \widehat R(\phi)=\frac1B\sum_{i=1}^B
+ \frac1{|Q_i|}\sum_{(x,y)\in Q_i}
+ \ell(f_{U_\phi(S_i)}(x),y).
+\end{equation}
+先在每个查询集内平均、再在任务间平均，表达的是任务等权风险；把所有查询样本直接汇总则偏向查询集更大的任务。两者都可以定义，但必须与部署时抽到任务的分布对应。在任务独立同分布且支持查询按声明机制抽样时，该经验目标估计适应后的期望风险。高度相关的窗口不是独立任务，任务数量不能用窗口数量替代。
+
+若把支持集也作为外循环评价集，目标会偏向快速记住已见样本，而不是快速泛化到任务内的新样本。相反，元训练查询标签用于更新$\phi$是算法本身所需，并非泄漏；真正禁止的是利用元测试查询标签选择初始化、步数、阈值或检查点。对于时间序列，支持与查询的时间关系也属于任务分布：训练时用随机窗口构造任务，部署时却要求从过去适应未来，会改变元目标所对应的条件分布。
+
+\section{度量与关系方法}
+\paragraph{Matching Networks 与原型网络。}
+Matching Networks 根据查询与支持样本的相似度对支持标签加权\cite{vinyals2016matching}：
+\begin{equation}
+ p(y\mid x,S)=\sum_{i\in S}a(x,x_i)\mathbf1[y_i=y],
+ \quad a(x,x_i)=\frac{\exp s(f(x),g(x_i))}{\sum_{j\in S}\exp s(f(x),g(x_j))}.
+\end{equation}
+适应主要表现为改变支持集，而非更新全部网络参数。支持样本增加会提高推理成本，噪声支持样本可能直接传播错误标签。
+
+若查询编码$h=f(x)\in\R^r$、支持编码$e_i=g(x_i)\in\R^r$，可取$s(h,e_i)=-\|h-e_i\|^2/\tau$，$\tau>0$。对类别$k$，Matching Networks 等价于
+\begin{equation}
+ p(y=k\mid x,S)=
+ \frac{\sum_{i:y_i=k}\exp[-\|h-e_i\|^2/\tau]}
+ {\sum_j\exp[-\|h-e_j\|^2/\tau]}.
+\end{equation}
+它可以看作嵌入空间中的核加权投票：当$\tau\to0$且最近点唯一时接近最近邻，当$\tau\to\infty$时接近支持集类别频率。于是支持集不平衡会隐含改变类别先验，不能把“多放几个正常样本”视为不影响预测规则的改动。训练查询交叉熵时，梯度同时改变查询和支持编码器，使适用于任务的近邻关系被反复强化；若相似度本身受新工况干扰，少量错误近邻就可能主导结果。
+
+原型网络以类均值压缩支持集\cite{snell2017proto}：
+\begin{equation}
+ c_k=\frac1{|S_k|}\sum_{(x_i,y_i)\in S_k}f_\phi(x_i),\qquad
+ p(y=k\mid x,S)=\frac{\exp[-d(f_\phi(x),c_k)/\tau]}
+ {\sum_j\exp[-d(f_\phi(x),c_j)/\tau]}.
+\end{equation}
+每个 episode 先编码支持集并计算原型，再计算查询交叉熵，最后反向更新共享编码器。类均值与平方欧氏距离配合有明确几何意义，换用任意距离不保证均值仍是最佳代表。温度$\tau$影响概率尖锐程度，应在元验证任务选择。
+
+\paragraph{均值原型、概率模型与反向传播。}
+设每个编码$h_i=f_\phi(x_i)\in\R^r$，类别$k$的原型解决$\min_c\sum_{i\in S_k}\|h_i-c\|^2$。展开并求导得到$2|S_k|c-2\sum_ih_i=0$，故最优解正是均值$c_k$。若再假设$h\mid y=k\sim\mathcal N(c_k,\sigma^2I_r)$且各类先验相同，贝叶斯公式给出平方欧氏原型的 softmax，温度$\tau=2\sigma^2$。先验不同则需在 logit 中加$\log\pi_k$。因此均值和距离的配合隐含了单峰、近似同尺度类别分布；同类多工况形成多个分支时，均值可能落在没有真实样本的位置。
+
+对查询真标签$y$，令$\ell=-\log p_y$、$h=f_\phi(x)$。平方欧氏距离下
+\begin{equation}
+ \frac{\partial\ell}{\partial h}
+ =\frac2\tau\left(\sum_kp_kc_k-c_y\right),\qquad
+ \frac{\partial\ell}{\partial c_k}
+ =\frac2\tau(p_k-\mathbf1[k=y])(h-c_k).
+\end{equation}
+这来自交叉熵对 logit 的导数$p_k-\mathbf1[k=y]$。又因$\partial c_k/\partial h_i=I_r/|S_k|$，查询误差会通过原型回传到每个支持编码，不能在元训练中默认将原型从计算图分离。推理时则只需计算支持原型和新查询距离。若支持噪声独立且协方差为$\Sigma_k$，均值方差为$\Sigma_k/|S_k|$；相关窗口会降低这种方差缩减收益，说明 shot 数必须按真正独立证据理解。
+
+多原型变体用多个中心表示同类不同工况，但需要估计中心数和分配规则；类不平衡变体应避免支持样本数量被隐含当作类别先验。Relation Networks 用可学习关系模块替代固定距离\cite{sung2018relation}，表达能力增加，同时也更易记住训练任务的比较模式。传导式变体联合利用无标签查询集结构，须与逐查询归纳预测分开比较。
+
+\paragraph{可学习关系与无标签查询的边界。}
+关系模块可以取$r_\psi([h;c_k])\in\R$，其中拼接输入为$2r$维，令$p_k=\softmax_k(r_\psi([h;c_k]))$，再用查询交叉熵训练$\phi,\psi$。此时$\partial\ell/\partial r_k=p_k-\mathbf1[k=y]$，随后通过关系网络传回编码器。关系分数不一定对称，也不必满足三角不等式，所以它是任务比较函数而非严格距离；灵活性提高的同时失去了固定度量的一些约束。
+
+若允许一次看到整个无标签查询批，可用软分配$r_{jk}\propto\exp[-\|h_j-c_k\|^2/\tau]$，再以$c_k^{new}=(\sum_{i\in S_k}h_i+\sum_{j\in Q}r_{jk}h_j)/(|S_k|+\sum_{j\in Q}r_{jk})$更新中心。它类似固定各向同性尺度混合模型的一次软聚类更新，不需要查询标签，但确实使用了查询分布。未知类、类别不平衡或初始原型错误可能形成自我强化，因此必须与逐查询预测分开报告，也不能在只到达一个样本的部署流程中假定整批查询可见。
+
+\section{梯度初始化与一阶变体}
+\paragraph{MAML 的内外循环。}
+MAML 学习适于快速更新的初始化$\theta$\cite{finn2017maml}。单步内循环与外循环为
+\begin{equation}
+ \theta_i'=\theta-\alpha\nabla_\theta\mathcal L_{S_i}(\theta),
+ \qquad\theta\leftarrow\theta-\beta\sum_i\nabla_\theta\mathcal L_{Q_i}(\theta_i').
+\end{equation}
+先采样多个任务，各自从同一初始化开始适应，再汇总查询梯度；不能让任务$i+1$直接继承任务$i$的适应结果。链式法则给出
+\begin{equation}
+ \nabla_\theta\mathcal L_{Q_i}(\theta_i')
+ =(I-\alpha H_{S_i})^{\mathsf T}\nabla_{\theta_i'}\mathcal L_{Q_i}(\theta_i').
+\end{equation}
+这里$i$索引本批任务，$\alpha,\beta>0$分别为内、外循环学习率，$H_{S_i}=\nabla_\theta^2\mathcal L_{S_i}(\theta)$是在当前初始化处求值的 Hessian，$I$与参数维数相同。
+实现通常使用 Hessian--向量积，无需显式存储整个 Hessian，但多步内循环仍增加计算图与显存。适应步数、内循环学习率和是否更新归一化统计量都属于算法设定。
+
+\paragraph{多步链式法则与曲率直觉。}
+设$\theta_{i,0}=\theta\in\R^d$，第$s$步$\theta_{i,s+1}=\theta_{i,s}-\alpha\nabla\mathcal L_{S_i}(\theta_{i,s})$。记$H_{i,s}\in\R^{d\times d}$为该步 Hessian、$A_{i,s}=I-\alpha H_{i,s}$，则
+\begin{equation}
+ \frac{\partial\theta_{i,m}}{\partial\theta}
+ =A_{i,m-1}\cdots A_{i,0},\qquad
+ \nabla_\theta\mathcal L_{Q_i}(\theta_{i,m})
+ =A_{i,0}^{\mathsf T}\cdots A_{i,m-1}^{\mathsf T}g_{Q_i}.
+\end{equation}
+矩阵一般不可交换，顺序不能倒置。反向实现从查询梯度$v_m=g_{Q_i}$出发，逐步计算$v_s=v_{s+1}-\alpha H_{i,s}^{\mathsf T}v_{s+1}$。对固定向量$v$，$Hv=\nabla_\theta[(\nabla_\theta\mathcal L)^{\mathsf T}v]$，所以无须建立$d\times d$矩阵。但仍需保存或重算各步状态，而且内循环梯度必须保留可微路径；把更新后的参数无条件分离会改变算法。
+
+用一维任务$\mathcal L_S(\theta)=a(\theta-b)^2/2$、$\mathcal L_Q(v)=c(v-b)^2/2$说明曲率作用，其中$a,c>0$。一步适应后$\theta'-b=(1-\alpha a)(\theta-b)$，外层损失及其梯度为
+\begin{equation}
+ \mathcal L_Q(\theta')=\frac c2(1-\alpha a)^2(\theta-b)^2,
+ \qquad \frac{d\mathcal L_Q(\theta')}{d\theta}
+ =c(1-\alpha a)^2(\theta-b).
+\end{equation}
+元目标评价的是适应后误差，而非原点误差。若支持曲率$a$允许一步恰好到达$b$，该任务对初始化的梯度可以为零；若步长使$|1-\alpha a|>1$，适应反而放大误差。这说明“容易微调”的初始化必须和步长、任务曲率共同讨论。实际支持与查询目标不同，有限支持样本产生的曲率还可能是噪声，不能把该示例的理想一步解推广到真实网络。
+
+First-Order Model-Agnostic Meta-Learning (FOMAML) 忽略内循环 Jacobian 中的 Hessian 项，以降低开销；它是梯度近似，不是与 MAML 完全等价的目标。Reptile 在单任务上执行多步更新得到$\theta_i'$，再令\cite{nichol2018reptile}
+\begin{equation}
+ \theta\leftarrow\theta+\epsilon(\theta_i'-\theta).\label{eq:meta-reptile-update}
+\end{equation}
+式\eqref{eq:meta-reptile-update}不显式对查询损失求二阶梯度，多步任务内更新使算法偏向能在同一任务不同批次间泛化的初始化。一步更新时与多任务梯度训练的关系更接近，因此步数不是无关的实现细节。
+
+\paragraph{一阶近似到底舍弃了什么。}
+单步时 FOMAML 使用$g_Q$代替$(I-\alpha H_S)^{\mathsf T}g_Q$，故误差为$\alpha H_S^{\mathsf T}g_Q$，若$\|H_S\|\leq L$则范数不超过$\alpha L\|g_Q\|$。小步长且曲率受控时这种近似较合理；多步情况下误差来自一串 Jacobian 的省略，不能只凭单步界判断。前述一维例中，FOMAML 给出$c(1-\alpha a)(\theta-b)$，而真梯度多一个$1-\alpha a$因子，过大步长甚至会使两者方向相反。
+
+对 Reptile，考虑同一任务上两个小批次损失，初始点处梯度为$g_1,g_2$、第二批 Hessian 为$H_2$。两步内更新用 Taylor 展开得到
+\begin{align}
+ \theta_1&=\theta-\alpha g_1,\\
+ \theta_2&=\theta_1-\alpha\nabla\mathcal L_2(\theta_1)
+ =\theta-\alpha(g_1+g_2)+\alpha^2H_2g_1+O(\alpha^3).
+\end{align}
+因此 Reptile 的位移除平均梯度项外，还含跨批次相互作用。若批次交换对称，$\nabla(g_1^{\mathsf T}g_2)=H_1g_2+H_2g_1$，二阶位移在期望上与提高同任务梯度一致性有关。这只是光滑、小步长下的局部解释，不是 Reptile 与 MAML 完全等价的证明。只有一步时没有该项，更新退化为任务采样下的普通梯度训练。
+
+\paragraph{Meta-SGD、Almost No Inner Loop (ANIL) 与隐式梯度。}
+Meta-SGD 同时学习初始化和逐参数更新尺度$\alpha$，内循环写为$\theta_i'=\theta-\alpha\odot\nabla\mathcal L_{S_i}$\cite{li2017metasgd}。更新尺度可改变方向和幅度，但也增加元参数与过拟合风险。ANIL 仅在内循环更新任务头，编码器由外循环训练\cite{raghu2020anil}；它检验快速适应是否主要依赖可复用表示，而非整个网络都必须变化。
+
+对 Meta-SGD，$\alpha\in\R^d$也是元参数。令$g_S=\nabla\mathcal L_S(\theta)$、$g_Q=\nabla\mathcal L_Q(\theta')$，链式法则给出
+\begin{equation}
+ \nabla_\alpha\mathcal L_Q=-g_S\odot g_Q,\qquad
+ \nabla_\theta\mathcal L_Q=
+ [I-\diag(\alpha)H_S]^{\mathsf T}g_Q.
+\end{equation}
+当同一坐标的支持与查询梯度一致时，外循环倾向增大该坐标更新幅度；不一致时倾向减小。允许负尺度还可翻转方向，但这不再是传统的正学习率下降法，应监控任务外的稳定性。
+
+对 ANIL，令参数为编码器$\omega$与任务头$w$，仅更新$w'=w-\alpha\nabla_w\mathcal L_S(\omega,w)$。编码器的外层梯度仍为
+\begin{equation}
+ \nabla_\omega\mathcal L_Q(\omega,w')
+ =\partial_\omega\mathcal L_Q
+ +\left(\frac{\partial w'}{\partial\omega}\right)^{\mathsf T}
+ \nabla_{w'}\mathcal L_Q,\qquad
+ \frac{\partial w'}{\partial\omega}
+ =-\alpha\frac{\partial(\nabla_w\mathcal L_S)}{\partial\omega}.
+\end{equation}
+所以“内循环不更新编码器”不等于“外循环冻结编码器”，也不自动消除混合二阶导数；若额外舍弃该项，还应声明采用了一阶近似。
+
+iMAML 在任务内目标加入到初始化的近端项\cite{rajeswaran2019imaml}：
+\begin{equation}
+ \theta_i^*=\arg\min_\vartheta\left[\mathcal L_{S_i}(\vartheta)
+ +\frac\lambda2\|\vartheta-\theta\|^2\right].
+\end{equation}
+在局部可微、驻点充分求解且相关矩阵可逆时，隐式微分给出
+\begin{equation}
+ \frac{\partial\theta_i^*}{\partial\theta}
+ =\lambda(H_{S_i}+\lambda I)^{-1}.\label{eq:meta-implicit-jacobian}
+\end{equation}
+此处$\lambda>0$，$H_{S_i}=\nabla_\vartheta^2\mathcal L_{S_i}(\vartheta)|_{\vartheta=\theta_i^*}$改在内层解处求值，不能沿用前面初始化处的数值。
+通过迭代解线性系统获得向量积，可避免保存全部内循环轨迹；代价转为内层求解和线性系统精度。它不是任意少量梯度步下都成立的精确替代。
+
+\paragraph{隐式微分的驻点方程与数值误差。}
+令$G(v,\theta)=\nabla\mathcal L_S(v)+\lambda(v-\theta)$。内层解满足$G(\theta^*,\theta)=0$，对初始化求全导数得到
+\begin{equation}
+ (H_S+\lambda I)\frac{\partial\theta^*}{\partial\theta}
+ -\lambda I=0.
+\end{equation}
+若$A=H_S+\lambda I$可逆，就得到式\eqref{eq:meta-implicit-jacobian}。对不直接依赖初始化的查询损失，先解$A^{\mathsf T}v=g_Q$，再返回$\lambda v$作为元梯度。若$A$对称正定可用共轭梯度法，并以 Hessian--向量积执行矩阵作用；单纯可逆但不定时，不能无条件使用正定系统的收敛保证。
+
+若线性求解的残差为$r=g_Q-A^{\mathsf T}\widetilde v$，则$\|\widetilde v-v\|\leq\|A^{-\mathsf T}\|\|r\|$。小残差在病态系统中仍可能对应大误差；内层未达到驻点还会引入另一项偏差。对凸二次支持损失的特征方向$a\geq0$，初始化敏感度为$\lambda/(a+\lambda)$：证据曲率强的方向更由支持集决定，曲率弱的方向更依赖初始化。$\lambda$很大时稳定但适应受限，过小时可能病态，非凸情况下还可能切换局部解分支。隐式方法省去的是展开轨迹，而不是内层求解本身。
+
+\section{学习更新规则与概率适应}
+学习优化器将梯度与历史状态输入参数化更新器：
+\begin{equation}
+ h_{r+1}=g_\phi(h_r,\nabla\mathcal L_S),\qquad
+ \theta_{r+1}=\theta_r+u_\phi(h_{r+1}).
+\end{equation}
+外循环根据优化后的损失训练$\phi$\cite{andrychowicz2016optimizer}。相比学习一个初始化，这一路线学习整个更新行为，但展开步数、参数尺度和网络结构变化会造成新的分布偏移。
+
+\paragraph{学习优化器的状态展开。}
+设$\theta_r\in\R^d$、隐藏状态$h_r\in\R^m$，合并状态$s_r=(\theta_r,h_r)$，则上述更新可以写为$s_{r+1}=T_\phi(s_r;S)$。若初始状态与$\phi$无关，定义$J_r=\partial s_r/\partial\phi$，有
+\begin{equation}
+ J_0=0,\qquad
+ J_{r+1}=\frac{\partial T_\phi}{\partial s_r}J_r
+ +\frac{\partial T_\phi}{\partial\phi},\qquad
+ \nabla_\phi\mathcal L_Q(\theta_R)
+ =J_R^{\mathsf T}\nabla_{s_R}\mathcal L_Q.
+\end{equation}
+若初始化也可学习，则$J_0$应包含相应导数。由于状态转移使用$\nabla\mathcal L_S(\theta_r)$，第一项通常含 Hessian；对输入梯度停止求导可降低开销，但会改变元梯度。反复相乘的状态 Jacobian 还会产生梯度消失或爆炸，截断反向传播因此是一种有偏近似，而非免费计算技巧。
+
+逐坐标共享更新器可让同一个小网络应用于不同维度参数，然而梯度尺度、层结构、训练时长仍可能超出元训练范围。训练只展开十步的优化器不能凭短期损失下降就保证运行一千步稳定。验证时应报告完整轨迹、不同展开长度及普通 SGD、Adam 在相同计算预算下的结果。
+
+概率元学习不只输出单个适应参数，而是在少量证据下保留多个合理任务解释。Probabilistic Model-Agnostic Meta-Learning (PLATIPUS) 等方法学习初始化的不确定性，并通过任务内更新得到预测分布\cite{finn2018platipus}。模型平均可表达任务歧义，但需要检查近似后验、采样成本与校准；支持样本少并不保证任何概率方法都能正确估计不确定性。
+
+\paragraph{层次先验如何产生少样本适应。}
+一个可明确计算的概率元学习模型是$\theta_i\sim p_\phi(\theta_i)$、$S_i\sim p(S_i\mid\theta_i)$。任务内适应对应
+\begin{equation}
+ p_\phi(\theta_i\mid S_i)
+ =\frac{p(S_i\mid\theta_i)p_\phi(\theta_i)}
+ {\int p(S_i\mid v)p_\phi(v)\,dv},\qquad
+ p(y\mid x,S_i)=\int p(y\mid x,\theta_i)p_\phi(\theta_i\mid S_i)\,d\theta_i.
+\end{equation}
+元训练可最大化支持条件下查询数据的预测概率，从而学习使新任务容易适应的先验。这是层次贝叶斯的基本解释，不意味着所有概率元学习算法都使用相同后验或目标。
+
+以线性高斯任务为例，$\theta_i\in\R^d$、$X_S\in\R^{m\times d}$、$y_S\in\R^m$，设$y_S\mid\theta_i\sim\mathcal N(X_S\theta_i,\sigma^2I)$，先验$\theta_i\sim\mathcal N(\mu,\Lambda^{-1})$、$\Lambda\succ0$。负对数后验中依赖$\theta_i$的部分为
+\begin{equation}
+ \frac1{2\sigma^2}\|y_S-X_S\theta_i\|^2
+ +\frac12(\theta_i-\mu)^{\mathsf T}\Lambda(\theta_i-\mu).
+\end{equation}
+展开二次项并配方得到
+\begin{equation}
+ \Sigma_S=(\Lambda+\sigma^{-2}X_S^{\mathsf T}X_S)^{-1},\qquad
+ m_S=\Sigma_S(\Lambda\mu+\sigma^{-2}X_S^{\mathsf T}y_S).
+\end{equation}
+因此新输入$x\in\R^d$的预测分布为$\mathcal N(x^{\mathsf T}m_S,\sigma^2+x^{\mathsf T}\Sigma_Sx)$。第一项方差来自观测噪声，第二项来自任务参数不确定性。样本未覆盖的方向主要保留先验，样本充分的方向更多服从似然，给出了“借助任务经验”的精确含义。先验均值及精度可由多个训练任务学习，但若新设备机制不在训练任务覆盖范围内，强先验也可能造成自信错误。
+
+非共轭模型常以$q_\psi(\theta\mid S)$近似后验，由 Jensen 不等式有
+\begin{equation}
+ \log p_\phi(S)\geq
+ \E_{q_\psi}\log p(S\mid\theta)
+ -\KL(q_\psi(\theta\mid S)\|p_\phi(\theta)).
+\end{equation}
+这个证据下界解释了数据拟合与接近共享先验的权衡；若元目标是条件查询预测，还需相应的外层训练，不能把优化支持集下界自动当作优化查询泛化。近似分布过于简单或采样不足会低估多种任务解释，因而概率输出仍须用覆盖率和校准检验。
+
+记忆增强方法把任务内观测写入可寻址状态，以读取记忆完成预测。它与参数梯度适应的主要区别是任务状态的保存位置。元测试时应重置任务记忆，防止跨任务残留信息改变规则。对于序列任务，还必须保证读取的记忆均早于当前预测时刻。
+
+\paragraph{记忆读取也是一种适应算子。}
+令任务记忆键$k_j\in\R^r$、值$v_j\in\R^q$，查询键$k(x)\in\R^r$。一个基本读取形式是
+\begin{equation}
+ a_j(x)=\frac{\exp(k(x)^{\mathsf T}k_j/\sqrt r)}
+ {\sum_b\exp(k(x)^{\mathsf T}k_b/\sqrt r)},\qquad
+ o(x)=\sum_ja_j(x)v_j.
+\end{equation}
+若值存标签编码，这与软近邻分类相联系；若值存任务历史状态，则输出还依赖写入与遗忘规则。分母使权重和为一，读取向量位于值向量的凸包内；要产生凸包外的复杂响应，还需后续预测网络。记忆容量有限、错误标签写入和相似键冲突都会限制适应。尤其在顺序标注规则中，当前样本标签必须在本次预测之后才能写入，否则模型学到的是读取答案而非预测。
+
+\section{跨设备快速适应的完整设置}
+在轴承诊断中，可以把“正常”和一种故障组成 $2$-way 任务；只有确实有五类可靠标签时，才定义 $5$-way 任务。应按设备划分元训练、元验证和元测试，同一条原始记录的相邻窗口不能一边进入支持集、一边进入查询集。元测试时，支持集只能用于预先规定的适应步骤，查询集再用来评价不同时间和工况下的表现。类别不够就修改任务设计，不能复制标签来凑 way 数。
+
+每个 episode 的步骤是抽取任务与类别、划分支持查询、重置初始化或任务状态、执行内循环、在查询上计算损失；只有元训练阶段反向更新共享元参数。比较原型网络、MAML、一阶方法与普通预训练微调时，应匹配支持样本、预训练数据和适应计算预算。预训练基线很强时，元学习的额外收益需要单独验证\cite{chen2019closer}。
+
+评价以任务而非高度相关的窗口为统计单元，报告平均性能、任务间区间、失败任务比例、适应前后增益、校准与延迟。改变支持集大小、标签噪声和目标设备类型，检查元训练任务分布之外的退化。不能用同一设备随机切片上的高准确率证明快速跨设备适应。
+
+\paragraph{本章小结。}
+元学习把一个预测器的训练问题改写为适应过程的训练问题。度量方法通过支持集重建比较规则，原型网络把平方距离下的类均值作为任务状态；MAML 通过内外循环链式法则学习初始化，一阶方法以梯度近似换取计算效率，隐式方法则以驻点方程替代轨迹展开。学习优化器和记忆方法把适应放在更新规则或显式状态中，概率方法进一步保留少量证据下的多种任务解释。这些路线的共同目标都是适应后的查询风险，而不是仅把支持样本拟合得更好。
+
+本章最重要的限制同样位于任务层面：训练任务的共同性未必能延续到新设备，过强先验、错误近邻和不稳定更新都可能放大偏差。只有设备级隔离、合法的支持查询划分、匹配的适应预算以及强预训练基线，才能说明元学习带来了真实收益。对同一设备重复切窗，或者利用元测试查询表现调参，都会改变原本宣称的学习问题。
+
+全书从怎样定义样本和损失开始，经过优化、概率推断和深度模型，最后讨论了不同的数据组织与学习方式。回到设备现场，仍应先问手上有什么记录、要提前作出什么判断，再选择模型和训练办法，最后检查误差、不确定性与运行成本。接下来的结语把这些检查整理为五个问题。开始新任务时，把记录来源、可用时间和评价方法写清楚，比先选一个热门模型更有帮助。

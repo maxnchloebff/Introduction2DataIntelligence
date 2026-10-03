@@ -1,0 +1,185 @@
+\chapter{统计学习理论与模型选择}
+
+\begin{quote}\small
+\textit{本章摘要。}本章为模型比较提供统计学习视角。先说明假设空间和容量如何影响泛化界，再讨论结构风险、交叉验证、校准、不平衡数据和置信区间。最后把理论约束转成数据泄漏检查，使模型选择从“哪个分数最高”转向“哪个结论在何种不确定性下成立”。
+\end{quote}
+
+上一章说明训练误差、抽样误差和分布偏移不是一回事，但现实实验还多了一层选择：研究者会试很多窗口、特征和超参数，再报告其中最好的结果。这时需要控制的不再是某个预先固定函数的误差，而是整个选择过程可能带来的乐观偏差。本章以这个区别为出发点，把统计学习的容量约束与实际验证规则连接起来。
+
+试过许多窗口长度以后再挑最高分，相当于又用数据作了一次选择。若仍用同一批数据报告最终成绩，就可能把偶然的好运当成稳定的提升。理论中的复杂度代价说明这种问题为什么会发生，交叉验证帮助安排有限样本的用途，校准和成本分析则帮助把分数变成告警规则。每一种方法都有适用条件，不能替代对新设备的独立检验。
+
+\section{假设空间与泛化约束}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.75cm]
+ \draw[->] (0,0)--(7.2,0) node[right] {模型复杂度};
+ \draw[->] (0,0)--(0,4.0) node[above] {误差};
+ \draw[blue!70!black, thick] plot[smooth] coordinates {(0.5,3.5)(1.5,2.6)(2.5,1.8)(3.5,1.25)(4.5,0.95)(5.5,0.8)(6.8,0.72)};
+ \draw[red!70!black, thick] plot[smooth] coordinates {(0.5,1.0)(1.5,1.25)(2.5,1.7)(3.5,2.2)(4.5,2.9)(5.5,3.35)(6.8,3.7)};
+ \draw[black!65, thick, dashed] plot[smooth] coordinates {(0.5,3.7)(1.5,2.9)(2.5,2.2)(3.5,1.75)(4.5,1.55)(5.5,1.65)(6.8,2.05)};
+ \node[blue!70!black, font=\scriptsize] at (5.4,0.55) {训练误差};
+ \node[red!70!black, font=\scriptsize] at (5.7,3.7) {方差/复杂度代价};
+ \node[font=\scriptsize] at (3.9,1.95) {真实风险};
+ \draw[dashed] (4.35,0)--(4.35,1.5);
+ \node[font=\scriptsize, anchor=north] at (4.35,-0.08) {折中点};
+\end{tikzpicture}
+\caption{模型复杂度同时影响拟合误差与估计方差；模型选择的目标是控制真实风险，而不是单独追求训练误差。}
+\label{fig:statistical-complexity-tradeoff}
+\end{figure}
+图\ref{fig:statistical-complexity-tradeoff}对照训练误差下降与复杂度代价上升的趋势；虚线的折中提醒读者，选模应控制未见样本风险，而非仅追求更低训练误差。
+\paragraph{假设空间。}
+学习算法从假设空间$\mathcal{H}$中选择函数。有限训练集只能约束$\mathcal{H}$在观测点上的行为，因此假设空间越丰富，插值训练数据越容易，但泛化分析也越困难。模型容量不能简单等同于参数数量，还与参数化方式、数据几何和优化偏置有关。
+
+\paragraph{统一收敛的直观证明。}
+对固定函数$f$，若损失$\ell(f(X),Y)\in[0,1]$，Hoeffding不等式给出
+\begin{equation}
+ \Pr\left(|R(f)-\hat R(f)|>\epsilon\right)\leq2\exp(-2n\epsilon^2).
+\end{equation}
+若$\mathcal{H}$是有限集合，对所有$f\in\mathcal{H}$使用联合界可得
+\begin{equation}
+ \Pr\left(\sup_{f\in\mathcal{H}}|R(f)-\hat R(f)|>\epsilon\right)
+ \leq2|\mathcal{H}|\exp(-2n\epsilon^2).\label{eq:statistical-union-bound}
+\end{equation}
+这说明样本量需要随假设空间复杂度增加。对无限空间，可用 Vapnik--Chervonenkis (VC) 维、Rademacher复杂度或覆盖数替代$|\mathcal{H}|$。
+
+\paragraph{从概率尾界到样本量。}
+以上$n$个样本必须独立同分布，$\mathcal H$应预先固定且非空；平方损失无界时不能不加条件地使用式\eqref{eq:statistical-union-bound}。为看到指数项的来源，令$Z_i=\ell(f(X_i),Y_i)\in[0,1]$。有界变量的指数矩满足$\E\exp(t(\E Z_i-Z_i))\leq\exp(t^2/8)$；独立性使指数矩相乘。Markov不等式给出
+\begin{equation}
+ \Pr(R-\hat R>\epsilon)
+ \leq\exp(-tn\epsilon+nt^2/8).
+\end{equation}
+取$t=4\epsilon$得到单侧$\exp(-2n\epsilon^2)$，对另一侧重复并相加即得双侧界。联合界不要求各函数的误差独立，因此适用于在同一数据上比较的多个模型。
+
+令式\eqref{eq:statistical-union-bound}右端为$\delta\in(0,1)$，解得以至少$1-\delta$的概率，对所有$f\in\mathcal H$同时成立
+\begin{equation}
+ |R(f)-\hat R(f)|\leq b_n,
+ \qquad b_n=\sqrt{\frac{\log(2|\mathcal H|/\delta)}{2n}}.\label{eq:statistical-uniform-radius}
+\end{equation}
+若希望误差不超过$\epsilon$，充分条件是$n\geq\log(2|\mathcal H|/\delta)/(2\epsilon^2)$。这是一条保守的充分保证，不是对具体任务所需数据量的精确预测。
+
+设$\hat f$最小化经验风险，$f_{\mathcal H}^*$最小化类内真实风险，则在式\eqref{eq:statistical-uniform-radius}对所有函数同时成立的事件上
+\begin{align}
+ R(\hat f)&\leq\hat R(\hat f)+b_n
+ \leq\hat R(f_{\mathcal H}^*)+b_n
+ \leq R(f_{\mathcal H}^*)+2b_n.
+\end{align}
+第一步和第三步都需要同时界；只给预先固定$f$的界无法直接代入数据依赖的$\hat f$。若优化仅达到$\eta$精度，最后再加$\eta$。相对所有可测函数中最优风险的差还包含类外近似误差，故增大$n$不能弥补错误的函数类。
+
+\paragraph{结构风险最小化。}
+经验风险最小化只看训练误差，结构风险最小化在一系列嵌套假设空间中选择复杂度。实际的正则化、树深度限制、网络宽度和数据增强都可视为控制有效复杂度的方法。理论上更强的模型仍可能泛化良好，因为优化算法偏爱某些简单或平滑的解。
+
+\paragraph{复杂度惩罚如何随候选类分配。}
+对预先指定的有限类$\mathcal H_m$选择正数$\pi_m$，满足$\sum_m\pi_m=1$，将失败概率分配为$\delta_m=\delta\pi_m$。再次使用联合界得到所有类同时有效的
+\begin{equation}
+ b_m=\sqrt{\frac{\log(2|\mathcal H_m|/(\delta\pi_m))}{2n}}.
+\end{equation}
+若在所有$m,f\in\mathcal H_m$中最小化$\hat R(f)+b_m$，则所选模型$\tilde f$满足
+\begin{equation}
+ R(\tilde f)\leq\inf_m\inf_{f\in\mathcal H_m}\{R(f)+2b_m\}.
+\end{equation}
+推导是先用$R(\tilde f)\leq\hat R(\tilde f)+b_{\tilde m}$，再用最小化性质与每个候选比较，最后把候选的经验风险换成真实风险。复杂类要靠真实的拟合改善抵消较大的惩罚，而不是仅靠训练误差获胜。
+
+\paragraph{无限类需要什么替代量。}
+连续参数类通常有无限多个函数，不能把参数个数代入$\log|\mathcal H|$。二分类的增长函数$\Pi_{\mathcal H}(n)$计数在$n$个点上最多能实现多少种二元标记；若VC维为$d_{\rm VC}$，则$n\geq d_{\rm VC}\geq1$时有$\Pi_{\mathcal H}(n)\leq(en/d_{\rm VC})^{d_{\rm VC}}$。它衡量可区分的标记，而非参数存储量。
+
+另一个视角是随机符号拟合能力。令损失类$\mathcal G=\{(x,y)\mapsto\ell(f(x),y):f\in\mathcal H\}$，独立符号$\epsilon_i$等概率为$\pm1$，定义
+\begin{equation}
+ \mathfrak R_n(\mathcal G)=\E_{D,\epsilon}\sup_{g\in\mathcal G}
+ \frac1n\sum_i\epsilon_i g(X_i,Y_i).
+\end{equation}
+引入独立同分布的复制样本$D'$后，用$R(g)=\E_{D'}\hat R_{D'}(g)$及上确界的凸性，得到
+\begin{align}
+ \E_D\sup_g(R(g)-\hat R_D(g))
+ &\leq\E_{D,D'}\sup_g\frac1n\sum_i(g(Z_i')-g(Z_i))\\
+ &\leq2\mathfrak R_n(\mathcal G).
+\end{align}
+第二步利用样本对可交换性插入随机符号，再将两个上确界分开。这解释了“能拟合纯随机波动”为什么意味着更大的乐观风险。若损失在$[0,1]$内，替换一个样本使上确界至多改变$1/n$，有界差分集中进一步给出以至少$1-\delta$的概率，$\sup_g(R-\hat R)\leq2\mathfrak R_n(\mathcal G)+\sqrt{\log(1/\delta)/(2n)}$。这些结论仍依赖独立抽样和适当可测性，并非对重叠窗口的自动保证。
+
+\section{模型选择、校准与不平衡}
+模型选择偏差要求把调参与最终评价分离\cite{cawley2010selection}。深度网络校准研究则表明，分类正确率与概率可信度需要分别检验，温度缩放是一种后处理基线\cite{guo2017calibration}。
+\paragraph{模型选择与交叉验证。}
+若数据近似独立同分布，$K$折交叉验证将训练集分为$K$份，轮流使用一份验证、其余训练。时间序列必须使用滚动窗口或前向验证，避免未来信息泄漏。超参数搜索也应嵌套在训练数据内部；否则测试集会逐渐变成隐形训练集。
+
+\paragraph{交叉验证估计的是哪个算法。}
+设折索引为$I_1,\ldots,I_K$，超参数为$h$，$\hat f_h^{(-k)}$表示只用第$k$折以外的数据完成预处理和训练后的模型。加权交叉验证风险为
+\begin{equation}
+ \widehat R_{\rm CV}(h)=\frac1n\sum_{k=1}^K\sum_{i\in I_k}
+ \ell(\hat f_h^{(-k)}(x_i),y_i).
+\end{equation}
+每个损失的标签没有参与产生该预测，但不同折的训练集重叠，因此这些损失不是独立试验。选$\hat h=\argmin_h\widehat R_{\rm CV}(h)$后，最小分数有选择偏差：对带噪估计$\hat r_h$，总有$\E\min_h\hat r_h\leq\min_h\E\hat r_h$。搜索越广，越容易挑中有利噪声。
+
+嵌套验证在外层训练集内部完成全部内层选择，再对外层留出样本预测，评估的是“选择加训练”这一完整算法。最后可用所有开发数据重新选择并拟合，但外层分数并非这个最终参数向量的无偏测量。设备切分估计跨设备能力，前向切分估计未来能力；两者对应不同目标，不能由普通随机$K$折替代。
+
+\paragraph{校准与决策。}
+分类器输出的分数不一定是概率。校准要求在所有预测为$p$的样本中，正例频率接近$p$。可靠性图和 Expected Calibration Error 可用于检查校准。若预测要驱动检修、放行或停机决策，还应定义效用函数$U(a,y)$，最终选择
+\begin{equation}
+ a^*(x)=\argmax_a\mathbb{E}_{p(y\mid x,\mathcal{D})}[U(a,y)].
+\end{equation}
+这说明“最准确的分类器”不一定产生“最优的行动”。
+
+\paragraph{不平衡与置信区间。}
+少数类任务应报告每类召回率、宏平均$F_1$和 Area Under the Precision--Recall Curve (PR-AUC)。重采样、类别权重和阈值调整针对的是不同环节，不能混为一谈。性能估计还需要不确定性，可使用自助法在测试样本上重采样得到指标分布。跨设备评估时，设备级重采样比样本级重采样更能反映真实部署波动。
+
+\paragraph{类别权重为何改变概率含义。}
+令真实条件正例概率为$p$，预测为$q$，正负类权重为$a,b>0$。固定输入处的加权交叉熵为$L(q)=-ap\log q-b(1-p)\log(1-q)$。求导并令其为零，得到
+\begin{equation}
+ -\frac{ap}{q}+\frac{b(1-p)}{1-q}=0,
+ \qquad q^*=\frac{ap}{ap+b(1-p)}.
+\end{equation}
+所以加权训练的理想输出一般不再是原始分布的$p$。若模型恰好达到该最优且权重已知，可反解$p=bq/[a(1-q)+bq]$；有限样本和错设模型下还需独立校准。重采样同样可能改变类别先验；它不应与只在预测后调整阈值混为一谈。
+
+精确率也直接受基率影响。若正例比例为$\pi$、真正率为$u$、假正率为$v$，Bayes公式给出
+\begin{equation}
+ \operatorname{Precision}=\frac{\pi u}{\pi u+(1-\pi)v}.
+\end{equation}
+即使排序和条件错误率不变，部署正例更稀少时精确率也会下降。跨工况比较精确率--召回率（Precision--Recall，PR）曲线应同时报告基率。
+
+\paragraph{区间与配对比较的抽样单位。}
+若独立测试单位上的损失$L_i$具有有限方差，均值$\bar L$的标准误估计为$s_L/\sqrt n$，大样本近似区间为$\bar L\pm1.96s_L/\sqrt n$。这只针对固定模型和既定测试分布，不包括训练随机性；稀有事件或小样本时正态近似可能不良。
+
+比较模型A、B时应先在同一测试单位上计算$d_i=L_{A,i}-L_{B,i}$，再估计$\bar d$的区间，因为
+\begin{equation}
+ \Var(L_A-L_B)=\Var(L_A)+\Var(L_B)-2\operatorname{Cov}(L_A,L_B).
+\end{equation}
+忽略配对会丢失共同设备难度的信息。对$G$台近似独立设备，自助法每次有放回抽取$G$个设备编号，保留所抽设备的全部窗口并重算指标；重复$B$次后取经验分位数作为近似区间。每台等权与每窗口等权是不同的目标，必须在每次重采样中维持原定义。设备数很少、设备之间相关或许多重采样没有正例时，区间本身也不可靠；增加重采样次数不会增加独立设备信息。
+
+\section{从统计结论到实验设置}
+\paragraph{数据泄漏清单。}
+常见泄漏包括：用全数据计算标准化参数，把同一设备的相邻窗口分到训练和测试，利用故障发生后的变量预测故障发生前的状态，以及根据测试集反复选择模型。泄漏往往带来异常漂亮的结果，因此每个实验都应记录切分单位、时间边界、预处理拟合范围和标签生成时刻。
+
+\paragraph{从固定函数到数据依赖的模型选择。}
+Hoeffding 界直接控制固定函数的经验风险偏差，但实际算法会根据数据选择函数。联合界的作用是同时控制整个假设空间，使“先看数据再选模型”仍有可分析的上界。代价是模型空间越复杂，需要更多样本或更强的结构约束。
+
+\paragraph{容量不是参数数量的同义词。}
+参数数量相同，网络能表达的函数也未必相同。激活函数、连接方式和参数共享决定函数类，优化路径则影响训练最后选到其中哪些函数。例如卷积在不同位置使用同一组权重，注意力允许相距较远的输入直接交互。分析泛化时，因此还要看函数类、参数范数、分类间隔和算法稳定性，不能仅按参数个数给模型排队。
+
+\paragraph{交叉验证的工程细节。}
+预处理、特征选择和超参数搜索都必须在每个训练折内部拟合。若先对全体数据做标准化或选择相关特征，再执行交叉验证，验证折的信息已经泄漏。时间序列使用前向验证时，验证窗口必须位于训练窗口之后，必要时在二者之间设置间隔以避免标签窗口重叠。
+
+\paragraph{不平衡、阈值与区间估计。}
+ROC-AUC 衡量排序能力，PR-AUC 更关注少数正类下的精确率和召回率。阈值改变会改变混淆矩阵，却不改变排序本身。若最终动作依赖阈值，应报告阈值扫描、成本曲线和置信区间。自助法重采样时，设备级任务应按设备重采样；否则同一设备的多个窗口会让区间过窄。
+
+\paragraph{校准的后处理。}
+温度缩放在验证集上用一个标量调整 logits，通常保持分类排序但改善概率校准；Platt scaling 和 isotonic regression 适用于不同数据规模与单调性假设。校准模型不能使用测试集反复调参，且分布变化后需要重新检查。对安全告警而言，概率校准和拒识机制常比少数百分点的准确率更重要。
+
+\paragraph{温度缩放的目标与边界。}
+对$C$类logits $z_i\in\R^C$，在独立校准集上令$T>0$，定义$q_{ic}(T)=\exp(z_{ic}/T)/\sum_j\exp(z_{ij}/T)$，最小化
+\begin{equation}
+ L(T)=\sum_i\left[-z_{i,y_i}/T+\log\sum_c\exp(z_{ic}/T)\right].
+\end{equation}
+取逆温度$\beta=1/T$，则
+\begin{align}
+ L'(\beta)&=\sum_i\left(\sum_cq_{ic}z_{ic}-z_{i,y_i}\right),\\
+ L''(\beta)&=\sum_i\Var_{c\sim q_i}(z_{ic})\geq0.
+\end{align}
+因此这是一个一维凸优化问题（约束$\beta>0$），可以直接检查边界解。正温度保持每个样本内部的类别次序和最大类别；多分类中不同样本的最大概率排序则未必保持，不能据此保证所有排序指标不变。它只能整体调整尖锐程度，无法修复所有类别和工况上的系统偏差。
+
+二分类可靠性图把样本分入$B_m$，计算箱内预测均值$\bar q_m$和事件比例$\bar y_m$；常用误差为$\sum_m(|B_m|/N)|\bar q_m-\bar y_m|$。这是依赖分箱的经验统计量，不是证明条件校准的定理。箱数太少会掩盖局部偏差，太多则产生高方差，应同时报告样本量与可靠性图。
+
+\section{从统计量到决策}
+模型输出只是决策系统的一个中间量。若动作集合为$\mathcal A$，效用函数为$U(a,y)$，最优动作是期望效用最大的动作。不同部门可能面对不同成本，因此同一个概率模型可以配合不同阈值，而不必为每种成本重新训练。这个分离有助于审计模型能力和业务策略各自的变化。
+
+\section{本章小结}
+统计学习提供的是关于数据、模型复杂度和未见样本风险的推理框架。它不能保证某个模型在所有工业分布上有效，却能迫使实验者明确假设空间、验证规则、泄漏风险、不确定性和决策成本。
+
+统一界考虑看过数据以后再选模型的影响，嵌套验证把挑选模型和报告成绩分开，配对比较与设备级区间估计则显示结果会怎样波动。比较平均误差前，要先核对任务、抽样单位和尝试方案的预算是否一致；选择告警阈值时，还要看校准和成本。下一章回到原始记录：如果不知道记录何时可用、标签何时截止、样本来自哪台设备，再严谨的统计计算也无法回答原先的维护问题。

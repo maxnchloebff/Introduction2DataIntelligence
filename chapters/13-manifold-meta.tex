@@ -1,0 +1,124 @@
+\chapter{流形学习与元学习}
+\begin{quote}\small
+\textit{本章摘要。}本章讨论两种利用任务结构提高学习效率的思想。流形学习假设高维观测集中在低维几何结构附近，元学习则假设任务之间存在可迁移的学习规律。前者从表示几何出发，后者从任务分布出发，二者都要求明确假设何时成立以及失效时如何诊断。
+\end{quote}
+当新设备只有少量标注时，上一章的数据协作并不能保证快速适应。本章分别考察样本邻域结构和跨设备任务经验能否降低标注需求。少样本故障分类仍须声明类别集合，不能与未来故障预测共用一个准确率；比较重点是相同支持集下，结构假设是否比普通微调带来更可靠的适应。
+\section{流形假设}
+流形假设认为高维观测往往集中在低维结构附近。设数据由$z\in\R^r$通过光滑映射$x=g(z)\in\R^d$生成，且$r\ll d$。流形学习的目标是恢复低维坐标、保持邻域结构或利用该结构进行预测。
+
+\section{流形表示与元学习}
+\paragraph{表示学习与流形正则。}
+自编码器学习$z=f_\phi(x)$与重构$\hat{x}=g_\psi(z)$。图正则化通过邻接图鼓励相邻样本表示接近：
+\begin{equation}
+ \mathcal{L}_{graph}=\frac12\sum_{i,j}W_{ij}\|z_i-z_j\|_2^2
+ =\operatorname{tr}(Z^{\mathsf T}LZ),
+\end{equation}
+其中$L=D-W$为图拉普拉斯矩阵。该正则的直观含义是：若两个样本在观测空间中属于同一局部结构，则表示空间不应无故把它们分开。
+
+\paragraph{元学习。}
+元学习（meta-learning）在任务分布$p(\mathcal{T})$上学习“如何快速学习”。以模型无关元学习MAML为例，每个任务先进行内循环更新
+\begin{equation}
+ \theta_i'=\theta-\alpha\nabla_\theta\mathcal{L}_{\mathcal{T}_i}^{train}(\theta),
+\end{equation}
+再用查询集优化初始参数
+\begin{equation}
+ \min_\theta\sum_i\mathcal{L}_{\mathcal{T}_i}^{test}(\theta_i').
+\end{equation}
+外循环的目标不是让一个任务达到最优，而是找到一个经过少量样本和少量梯度步就能适应许多任务的初始化。工业上可把不同设备、工况或产品批次视为任务，但任务之间的相关性需要由数据验证。
+
+\paragraph{方法分类与选择。}
+元学习可按学习对象分为优化器学习、初始化学习、度量学习和记忆增强学习；流形方法可按显式坐标、图结构和生成表示划分。二者共同强调结构的可迁移性，但流形学习主要利用样本几何，元学习主要利用任务分布。实际选择取决于新任务数据量、任务相似度、在线适应预算和安全约束。
+
+\begin{table}[htbp]
+\centering
+\caption{流形表示与元学习方法的选择依据}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{p{2.6cm}p{3.7cm}p{3.6cm}p{4.0cm}}
+\hline
+方法 & 主要结构假设 & 优势 & 失效模式与验证方式 \\
+\hline
+PCA & 全局低维线性子空间 & 快速、可解释、适合基线 & 非线性或多工况结构；检查重构和下游性能 \\
+LLE/Isomap & 局部邻域或测地距离可靠 & 保留局部几何或非线性结构 & 邻域错误、噪声和断裂流形；改变邻域规模复验 \\
+原型网络 & 同类样本在度量空间成簇 & 少样本推理简单、适应快 & 类内多模态或类别不平衡；按任务评估 \\
+MAML & 存在共享的快速适应初始化 & 适应能力强、可直接微调 & 二阶计算昂贵、元过拟合；按新设备划分任务 \\
+Reptile/一阶方法 & 一阶更新可近似任务适应方向 & 内存和实现成本较低 & 适应步数敏感；与普通微调比较 \\
+\hline
+\end{tabular}}
+\end{table}
+
+\paragraph{局部线性与拉普拉斯特征。}
+若邻域内流形近似线性，可以用邻域图保留局部距离。最小化$\operatorname{tr}(Z^{\mathsf T}LZ)$并加入$Z^{\mathsf T}DZ=I$约束后，非平凡解对应广义特征值问题
+\begin{equation}
+ L\bm{v}=\lambda D\bm{v}.
+\end{equation}
+这说明图嵌入不是任意画图，而是在保持邻域平滑和避免所有点塌缩之间寻找平衡。
+
+\paragraph{度量元学习。}
+给定支持集$S$和查询样本$x$，原型网络以类别原型
+\begin{equation}
+ c_k=\frac1{|S_k|}\sum_{(x_i,y_i)\in S_k}f_\phi(x_i)
+\end{equation}
+进行距离分类：$p(y=k\mid x)=\softmax(-d(f_\phi(x),c_k))$。每个 episode 模拟一次少样本任务，训练表示使同类样本靠近、异类样本分离。
+
+\paragraph{MAML的二阶梯度。}
+内循环更新后，外循环梯度为
+\begin{equation}
+ \nabla_\theta\mathcal{L}_{\mathcal{T}_i}^{test}(\theta_i')
+ =\frac{\partial\theta_i'}{\partial\theta}^{\mathsf T}
+ \nabla_{\theta_i'}\mathcal{L}_{\mathcal{T}_i}^{test},
+\end{equation}
+其中$\partial\theta_i'/\partial\theta=I-\alpha H_{train}$。因此标准 MAML 需要穿过内循环保存二阶信息；一阶近似忽略 Hessian 项以降低内存。任务划分和 episode 构造决定元学习是否真的模拟部署时的新任务。
+
+\paragraph{任务分布与元过拟合。}
+如果元训练任务与元测试任务来自同一批设备的随机切片，模型可能记住设备特征而不是学习快速适应。应按设备、产品型号或工况划分任务，并报告支持集大小、查询集大小和任务难度。元学习也可能在任务分布变化后失效，因此需要与普通预训练加微调基线比较。
+
+\section{跨设备适应与表示评价}
+\paragraph{跨设备快速适应案例。}
+将不同设备视为任务，在每个设备上用少量标注适应故障分类器。原型网络通过样本到类别原型的距离形成类别概率，MAML 的二阶梯度来自内层更新对外层损失的依赖；任务划分必须检验快速适应而非设备记忆，并比较流形正则和度量学习对表示空间施加的不同约束。
+
+\paragraph{PCA、LLE 与 Isomap。}
+PCA 假设数据结构可由一个全局线性子空间近似；局部线性嵌入（LLE）则在每个样本邻域内用线性重构权重，再寻找保持这些权重的低维坐标。Isomap 先构造邻域图，再用图上的最短路径近似流形测地距离，最后进行经典 MDS。它们分别对应全局线性、局部线性和全局测地距离的不同假设。
+
+\paragraph{t-SNE 与 UMAP 的使用边界。}
+t-SNE 擅长展示局部邻域，但簇间距离和簇大小不能直接解释为原空间中的几何事实；不同随机种子和 perplexity 也可能改变图形。UMAP 通过模糊邻域图保持局部结构，通常更适合较大数据集，但同样依赖邻域参数。降维图可以帮助发现数据质量问题，却不能替代分类性能、重构误差或下游任务验证。
+
+\paragraph{流形假设何时失效。}
+当数据包含多个不相交机制、噪声远大于流形厚度、邻域距离受尺度影响，或标签变化并不沿流形平滑时，流形正则可能把本应分开的样本拉近。工业数据中的工况切换、设备更换和故障突变都可能造成这种失效。应比较不同距离度量、邻域大小和是否加入物理特征，并检查正则化是否降低了少数故障的可分性。
+
+\paragraph{Reptile 与一阶元学习。}
+Reptile 反复在任务上进行若干步 SGD，再把初始化向任务适应后的参数移动：
+\begin{equation}
+ \theta\leftarrow\theta+\epsilon(\theta_i'-\theta).
+\end{equation}
+它不显式计算 MAML 的二阶 Hessian，内存更低，但优化目标和适应步数仍需调节。一阶 MAML 同样忽略二阶项，适合资源有限的场景；二者都必须和普通预训练加微调基线比较。
+
+\paragraph{Episode 的构造。}
+一个 few-shot episode 包含支持集和查询集。$N$-way $K$-shot 表示每个 episode 有$N$个类别、每类$K$个支持样本；查询集用于计算外循环损失。若同一设备的相邻窗口同时出现在支持集和查询集，模型可能只需识别设备而非学会故障类别。因此 episode 划分必须围绕真实部署中的新设备、新批次或新工况设计。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Latex, node distance=0.8cm, every node/.style={font=\small}]
+ \node[draw, rounded corners, fill=blue!10, minimum width=2.4cm] (tasks) {\shortstack{任务分布\\设备/工况}};
+ \node[draw, rounded corners, fill=orange!12, right=of tasks, minimum width=2.4cm] (support) {\shortstack{支持集\\少量标注}};
+ \node[draw, rounded corners, fill=green!12, right=of support, minimum width=2.4cm] (adapt) {\shortstack{内循环\\快速适应}};
+ \node[draw, rounded corners, fill=yellow!20, right=of adapt, minimum width=2.4cm] (query) {\shortstack{查询集\\外循环评价}};
+ \draw[->, thick] (tasks)--(support); \draw[->, thick] (support)--(adapt); \draw[->, thick] (adapt)--(query);
+ \draw[->, dashed] (query.south) to[bend right=35] node[below]{更新初始化或表示} (tasks.south);
+\end{tikzpicture}
+\caption{元学习 episode：支持集用于适应，查询集用于评价快速适应后的性能。}
+\end{figure}
+
+\paragraph{流形正则与度量学习的差异。}
+流形正则通常要求邻近样本在表示空间保持平滑，关注的是局部几何；度量学习直接通过正负样本或原型损失塑造类别距离，关注的是任务判别结构。二者可以联合，但可能发生冲突：物理上相邻的两个点若属于不同故障类别，单纯平滑会损害判别边界。标签信息和领域知识应决定正则强度，而不是默认越平滑越好。
+
+\paragraph{元过拟合与跨域检验。}
+元模型可能记住训练任务的设备编号、背景或采样协议。防止元过拟合需要按设备或产品族划分元训练和元测试任务，并改变支持集规模、标签噪声和工况。跨域测试还应报告适应前后性能、适应步数、标注成本和失败任务比例，而不能只给平均准确率。
+
+在跨设备轴承诊断中，可将每台设备划为一个任务，并构造$1$-way、$2$-way 和$5$-way的少样本协议。训练设备只用于元训练，完全未见的设备用于元测试；支持集中的样本按时间隔离，查询集覆盖不同转速和负载。除准确率外，还应记录适应前性能、每个支持样本带来的增益、适应步数、失败任务比例和置信度校准。若 MAML 在平均指标上领先但在某一类新设备上产生严重过度自信，应优先检查任务划分、传感器尺度和类别条件分布，而不是继续增大内循环步数。
+
+流形方法也应接受下游验收。先在训练数据上比较邻域保持率、局部连通性和类别边界，再在未见设备上测量故障召回与误报。若加入图正则后二维投影更平滑但少数故障召回下降，说明视觉上的簇结构与生产风险目标不一致；此时应降低正则权重、使用类别条件邻接图，或直接采用度量学习，而不是把可视化效果当作成功证据。
+
+\paragraph{本章小结。}
+流形学习利用样本几何，元学习利用任务分布。前者回答“哪些观测应在表示空间中保持邻近”，后者回答“如何用少量新数据快速改变预测器”。两种方法都依赖结构假设，因此必须通过邻域稳定性、任务划分和跨域实验验证，而不能仅凭二维可视化或单次 few-shot 结果下结论。

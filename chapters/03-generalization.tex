@@ -1,0 +1,129 @@
+\chapter{泛化、偏差与不确定性}
+\begin{quote}\small
+\textit{本章摘要。}本章回答训练集上的好结果为什么可能在真实设备上失效。先区分经验风险与真实风险，再分析偏差方差、正则化和分布偏移，最后讨论校准与不确定性。核心结论是：泛化不是单一分数，而是关于数据范围、错误结构和部署条件的可检验陈述。
+\end{quote}
+上一章的优化方法回答了怎样让训练目标下降，却没有回答下降之后能否相信模型。本章把视角从一次训练转到可能重复采集的数据以及尚未出现的设备：同一个学习算法在不同样本上会得到不同函数，同一个函数在不同工况下也会承担不同风险。理解这两种变化，是区分拟合成功与部署成功的起点。
+
+本章先问模型将用在哪些设备和工况，再分析错误从哪里来，最后讨论什么时候应该告警。偏差--方差分解可以帮助判断：模型是否太简单，训练数据是否太少，或者新设备已经超出了原来的数据范围？它并不意味着所有模型都有同样的误差曲线，正则化也要选择合适强度。读完后，说一个模型“泛化好”，应能具体说明在哪些设备上测过、漏报和误报各有多少，以及结论还需要哪些条件。
+
+\section{经验风险与真实风险}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.7cm and 0.8cm]
+ \node[idi input, minimum width=2.3cm] (train) {训练分布\\$P_{\rm train}$};
+ \node[idi process, right=of train, minimum width=2.3cm] (fit) {拟合模型\\$\hat f$};
+ \node[idi state, right=of fit, minimum width=2.3cm] (test) {部署分布\\$P_{\rm test}$};
+ \node[idi output, below=0.8cm of fit, minimum width=2.7cm] (gap) {泛化间隙\\$R(\hat f)-\hat R(\hat f)$};
+ \draw[idi arrow] (train)--(fit); \draw[idi arrow] (fit)--(test);
+ \draw[idi arrow] (train) |- (gap); \draw[idi arrow] (test) |- (gap);
+\end{tikzpicture}
+\caption{经验风险只描述训练分布上的拟合；泛化分析还要面对部署分布、噪声和模型选择过程。}
+\label{fig:generalization-distribution-gap}
+\end{figure}
+一致收敛与算法稳定性提供了理解泛化的不同途径\cite{vapnik1971uniform,bousquet2002stability}：前者控制假设空间上的经验误差偏离，后者研究替换训练样本对学习结果的影响。它们给出条件化保证，不意味着任何训练误差小的模型都可靠。
+训练集上的经验风险为$\hat R(f)$，数据分布$P(X,Y)$下的真实风险为
+\begin{equation}
+ R(f)=\mathbb{E}_{(X,Y)\sim P}\left[\ell(f(X),Y)\right].
+\end{equation}
+泛化间隙$R(f)-\hat R(f)$刻画模型在未见样本上的退化。它受样本量、模型容量、噪声、训练过程以及训练测试分布差异共同影响。
+
+\paragraph{偏差--方差分解。}
+对平方损失，在固定输入$x$处，设独立测试观测为$Y=f^*(x)+\varepsilon$，其中$f^*(x)=\E[Y\mid X=x]$，噪声在该输入处均值为零、方差有限，且与训练集$D$独立。若训练集随机性导致预测为$\hat f_D(x)$，则
+\begin{equation}
+ \mathbb{E}_{D,\varepsilon}[(\hat f_D(x)-Y)^2]
+ =\underbrace{(\mathbb{E}_D\hat f_D(x)-f^*(x))^2}_{\text{偏差}^2}
+ +\underbrace{\mathbb{E}_D[(\hat f_D(x)-\mathbb{E}_D\hat f_D(x))^2]}_{\text{方差}}
+ +\underbrace{\Var(\varepsilon)}_{\text{不可约噪声}}.
+\end{equation}
+增大模型容量通常降低近似偏差，却可能增加估计方差。正则化、更多数据和数据增强分别从限制解空间、降低估计不确定性和扩大有效样本的角度改善泛化。
+
+\paragraph{分解为何成立。}
+记$m(x)=\E_D\hat f_D(x)$、$u=\hat f_D(x)-m(x)$、$b=m(x)-f^*(x)$。预测误差为$u+b-\varepsilon$，故
+\begin{align}
+ \E[(u+b-\varepsilon)^2]
+ &=\E[u^2]+b^2+\E[\varepsilon^2]
+   +2b\E[u]-2b\E[\varepsilon]-2\E[u\varepsilon]\\
+ &=\Var_D(\hat f_D(x))+b^2+\Var(\varepsilon).
+\end{align}
+最后一步分别使用中心化、零均值与测试噪声独立于训练集的假设。再对测试输入$X$积分，就得到总体平方风险的分解；异方差时噪声项应写成$\E_X[\Var(Y\mid X)]$，而不是一个不随$x$变化的常数。此处的“偏差”是重复采样意义下的系统误差，不等同于某次测试集的平均残差。分类交叉熵不能直接套用这个平方展开；训练、测试有关联时，交叉项也未必为零。
+
+\paragraph{区分抽样误差与环境变化。}
+令$P$为训练总体、$Q$为部署总体，$\hat R_D$为训练样本风险，则有精确恒等式
+\begin{equation}
+ R_Q(\hat f_D)-\hat R_D(\hat f_D)
+ =\bigl[R_P(\hat f_D)-\hat R_D(\hat f_D)\bigr]
+  +\bigl[R_Q(\hat f_D)-R_P(\hat f_D)\bigr].\label{eq:generalization-risk-gap}
+\end{equation}
+式\eqref{eq:generalization-risk-gap}的第一项是同分布的样本泛化间隙，第二项是同一函数受到分布变化的影响，两项都可能为负。经典独立同分布泛化界主要控制第一项；再多训练样本也不能自动消除第二项。因此图\ref{fig:generalization-distribution-gap}中的部署退化是广义风险差，报告理论保证时应单独说明是否假设$P=Q$。
+
+\section{泛化误差、正则化与分布偏移}
+\paragraph{分布偏移。}
+当训练分布$P_{\mathrm{train}}(X,Y)$与部署分布$P_{\mathrm{test}}(X,Y)$不同，经典同分布泛化分析不再充分。协变量偏移主要改变$P(X)$，标签偏移主要改变$P(Y)$，概念偏移则改变条件关系$P(Y\mid X)$。工业设备老化、工况变化和传感器替换都可能造成这些偏移。
+
+\paragraph{正则化的概率解释。}
+考虑观测模型$y_i\mid x_i,\bm{\theta}\sim\mathcal{N}(f_{\bm{\theta}}(x_i),\sigma^2)$和高斯先验$p(\bm{\theta})=\mathcal{N}(0,\tau^2I)$。忽略与$\bm{\theta}$无关的常数后，最大后验估计满足
+\begin{align}
+ \hat{\bm{\theta}}_{\mathrm{MAP}}
+ &=\argmax_{\bm{\theta}}p(\bm{\theta}\mid\mathcal{D})\\
+ &=\argmin_{\bm{\theta}}\left\{\frac{1}{2\sigma^2}\sum_i\bigl(y_i-f_{\bm{\theta}}(x_i)\bigr)^2+\frac{1}{2\tau^2}\|\bm{\theta}\|_2^2\right\}.
+\end{align}
+因此，$L_2$正则并非纯粹的数值技巧，它也可以解释为对大参数的先验惩罚。贝叶斯方法进一步保留整个后验分布，而不只保留一个最优点。
+
+\paragraph{正则系数的尺度与收缩方向。}
+上述推导假定给定参数后各观测独立、噪声方差已知，且$\bm\theta\in\R^d$。似然的乘积取负对数成为残差平方和，先验取负对数成为参数平方范数。若目标采用$\frac1{2n}\sum_i(y_i-f_\theta(x_i))^2+\frac\lambda2\|\theta\|^2$，则乘以$\sigma^2/n$后可知$\lambda=\sigma^2/(n\tau^2)$；若使用未平均的平方和，系数就不同。
+
+在线性模型$y=X\theta+\varepsilon$中，$X\in\R^{n\times d}$，一阶条件给出
+\begin{equation}
+ (X^{\mathsf T}X+n\lambda I_d)\hat\theta=X^{\mathsf T}y.
+\end{equation}
+写薄奇异值分解$X=U\operatorname{diag}(s_j)V^{\mathsf T}$，可得
+\begin{equation}
+ \hat\theta=V\operatorname{diag}\left(\frac{s_j}{s_j^2+n\lambda}\right)U^{\mathsf T}y.
+\end{equation}
+最小二乘中不稳定的$1/s_j$被有界的收缩系数替代，小奇异值方向收缩更多。这会增加偏差，却降低噪声放大。结论依赖特征尺度；标准化必须只用训练数据，截距通常单独处理、不作同样惩罚。参数空间的高斯先验也不保证函数空间中具有相同强度的平滑性。
+
+\paragraph{为什么训练误差不是泛化证据。}
+经验风险只在已观测样本上计算。一个高容量模型可以在随机标签上达到几乎零训练误差，这说明优化能力和泛化能力是两个不同问题。泛化需要额外假设：训练样本如何产生、测试分布是否相近、模型是否利用了稳定结构，以及实验是否避免了信息泄漏。深度模型出现低训练误差并不矛盾，但必须通过严格划分和外部测试判断其学到的是什么。
+
+\paragraph{泛化误差的来源拆解。}
+排查测试误差时，可以分别检查近似误差、估计误差、优化误差、标签噪声和分布偏移。这是诊断的分类，不是对任意损失都成立的五项相加公式。模型太简单，可能连训练数据中的规律也表达不了；数据太少，换一批样本就可能学出不同结果；优化不到位，则可能尚未找到当前模型能达到的解。错标工单和新设备工况变化还会带来另外的困难，单纯增加网络深度不能一并解决。
+
+\paragraph{数据增强与有效样本量。}
+数据增强通过构造保持标签的变换扩大有效训练分布。若变换$T$满足任务不变性，理想关系是$f(Tx)=f(x)$；但工业视觉中的旋转、裁剪和颜色改变未必满足这一关系。增强越强不一定越好：它可能降低训练集与部署分布的差异，也可能删除真正的故障信号。增强策略应按物理成像和传感器机制设计，并在原始测试集上验证。
+
+\paragraph{分布偏移的诊断路径。}
+先比较输入边缘分布，再比较标签比例，最后检查$P(Y\mid X)$是否变化。若只有输入统计变化，可能是协变量偏移；若类别先验变化，可能是标签偏移；若相同输入含义改变，则是概念偏移。实际系统往往三者同时存在，因此需要按设备、时间、工况和数据质量分层评估，而不是只计算一个总体距离。
+
+\paragraph{校准与决策风险。}
+预测概率的校准要求，在所有预测为$p$的样本中，事件发生频率接近$p$。可靠性图、期望校准误差和 Brier score 可用于检查这一点。校准良好的概率仍可能来自错误模型，但未校准的概率无法直接用于成本敏感决策。若漏报成本是误报的十倍，阈值应由期望成本决定，而不是固定取$0.5$。
+
+\paragraph{协变量偏移下的风险重加权。}
+设$P$、$Q$分别有训练与部署密度，且$Q(y\mid x)=P(y\mid x)$，并要求$Q_X$相对于$P_X$绝对连续：部署中可能出现的输入不能完全没有训练支持。定义$w(x)=q_X(x)/p_X(x)$，则
+\begin{align}
+ R_Q(f)&=\int\ell(f(x),y)q_X(x)p(y\mid x)\,dx\,dy\\
+ &=\E_P[w(X)\ell(f(X),Y)]
+ \approx\frac1n\sum_{i=1}^nw(x_i)\ell(f(x_i),y_i).
+\end{align}
+对固定$f$和已知权重，最后的平均是无偏估计；但其方差为$\Var_P(w\ell)/n$，极大权重会使估计不稳定。截断权重降低方差却引入偏差。若条件关系已变或支持不重叠，这个恒等式不能作为修复依据；仅检测到输入漂移也不能证明条件关系保持不变。
+
+\paragraph{从概率误差到动作阈值。}
+设$Y\in\{0,1\}$，$p(x)=P(Y=1\mid x)$；告警但无故障的成本为$C_{\rm FP}>0$，不告警但故障的成本为$C_{\rm FN}>0$，正确动作成本为零。两个动作的条件风险为
+\begin{equation}
+ r(1\mid x)=C_{\rm FP}(1-p(x)),\qquad
+ r(0\mid x)=C_{\rm FN}p(x).
+\end{equation}
+比较二者得到告警规则$p(x)>C_{\rm FP}/(C_{\rm FP}+C_{\rm FN})$。这不是普适的维护阈值：复检若每次都收费、动作会改变故障概率，或存在资源约束，就要重写成本矩阵。
+
+概率质量也可由平方评分解释。对报告概率$q\in[0,1]$，
+\begin{equation}
+ \E[(q-Y)^2\mid X=x]=(q-p(x))^2+p(x)(1-p(x)).\label{eq:generalization-brier-decomposition}
+\end{equation}
+由式\eqref{eq:generalization-brier-decomposition}可知，Brier 分数在真实条件概率处最小。常数预测总体故障率也可能总体校准，却无法区分高低风险设备，故校准不能替代分辨能力。按分箱检查频率只是有限样本近似，还受箱宽与少数类数量影响。
+
+\paragraph{泛化边界的诚实表述。}
+实验只验证了特定数据来源、时间范围、设备集合和标签定义规则下的结论。论文或报告中应明确哪些条件被测试，哪些条件只是推测。对于分布外样本，模型可以拒识、输出不确定性或请求人工复核，但不能把“没有训练数据”自动等同于“模型一定知道自己不知道”。
+
+\section{本章小结：从误差解释走向证据约束}
+本章把“效果不好”拆成了可讨论的不同问题：有限样本使估计变化，结构限制产生偏差，噪声设置可达到的误差下限，环境变化则可能破坏全部同分布论证。正则化改变的是估计过程，重加权依赖的是可迁移假设，校准服务的是概率决策；三者不能相互替代。实际改进应先定位误差来源，再选择增加数据、修改模型或调整部署范围。
+
+如果试了很多模型，只挑误差最低的一个，它可能只是碰巧适合这批数据。下一章用有限假设空间的统一界解释这种选择偏差，再介绍交叉验证和设备级区间估计，帮助判断分数差异是否经得住重新采样。

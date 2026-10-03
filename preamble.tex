@@ -1,0 +1,39 @@
+\usepackage{amsmath,amssymb,amsthm,mathtools,bm}
+\usepackage[a4paper,top=2.5cm,bottom=2.5cm,left=2.65cm,right=2.65cm,headheight=15pt]{geometry}
+\usepackage{booktabs,array,graphicx,xcolor,enumitem,hyperref}
+\usepackage{caption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,shapes.geometric,decorations.pathreplacing}
+\tikzset{
+	idi node/.style={draw, rounded corners=2pt, align=center, minimum height=0.72cm, inner sep=5pt, font=\small},
+	idi input/.style={idi node, fill=blue!8, draw=blue!55!black},
+	idi process/.style={idi node, fill=orange!12, draw=orange!65!black},
+	idi state/.style={idi node, fill=green!10, draw=green!55!black},
+	idi output/.style={idi node, fill=red!8, draw=red!55!black},
+	idi arrow/.style={-{Latex[length=2mm]}, thick},
+	idi feedback/.style={-{Latex[length=2mm]}, dashed, thick, gray!75!black}
+}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{microtype}
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=fullflexible,frame=single}
+\captionsetup{font=small,labelfont=bf}
+
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=teal,urlcolor=blue}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{1}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\KL}{\operatorname{KL}}
+\newcommand{\argmin}{\mathop{\mathrm{arg\,min}}}
+\newcommand{\argmax}{\mathop{\mathrm{arg\,max}}}
+\newcommand{\softmax}{\operatorname{softmax}}
+\newcommand{\diag}{\operatorname{diag}}
+\newtheorem{definition}{定义}[chapter]
+\newtheorem{proposition}{命题}[chapter]
+\newtheorem{example}{例}[chapter]
+\newtheorem{remark}{说明}[chapter]
+\newtheorem{theorem}{定理}[chapter]
+\newtheorem{lemma}{引理}[chapter]

@@ -1,0 +1,255 @@
+\chapter{语言大模型}
+\begin{quote}\small
+\textit{本章摘要。}本章沿着“文本如何变成可预测的序列”这条主线介绍语言大模型。先讲 token、表示和 Transformer，再解释预训练、缩放、监督微调、参数高效适配和解码，最后讨论检索增强、工具调用、评测与风险。这样可以把模型能力、外部知识和系统行为区分开来。
+\end{quote}
+在贯穿案例中，本章不让语言模型直接替代故障预测器，而是处理设备手册、维修记录和告警上下文这类离散证据。它改变的是“如何检索、组织和调用知识”，而不是把事后记录伪装成预测时刻可用的信息；任何维修建议都必须回到原始证据、权限和人工确认。
+上一章把缺陷落实为空间位置和边界，但维护判断还需要回答“这个型号允许多大偏差”“哪一版条款适用于当前设备”。这些知识并不天然存在于像素或传感器轨迹中，而分散在带条件、例外和有效期的文档里。本章研究的不是让语言流畅性覆盖证据缺口，而是把文本概率模型、外部知识访问和受约束的系统行为分开建模，再考察它们怎样协同。
+
+可以把本章的方法分开理解：预训练学习文本怎样接续，微调和偏好学习调整回答方式，检索则为这次回答找来相关资料。三者不能互相替代。模型即使把句子续得很顺，也可能记错规程；回答即使受人欢迎，也可能漏掉适用条件；放入整本手册，也不保证它读到了关键条款。下面通过似然梯度、低秩更新和偏好概率解释训练，再检查生成答案能否追溯到当前有效的原文。
+\section{Token、表示与语言建模}
+本章的自注意力结构以 Transformer 为基础\cite{vaswani2017attention}。Bidirectional Encoder Representations from Transformers (BERT) 的双向掩码预训练与自回归语言模型采用不同的信息可见性，因而需要分别理解表示与生成目标\cite{devlin2019bert,brown2020gpt3}。
+文本先经过 tokenizer 转换为 token 序列。语言模型学习
+\begin{equation}
+ p_\theta(x_{1:T})=\prod_{t=1}^{T}p_\theta(x_t\mid x_{<t}),\label{eq:llm-chain-probability}
+\end{equation}
+训练目标是最小化负对数似然。Transformer中的 token 表示由词嵌入、位置编码和多层注意力变换得到。
+
+\paragraph{链式分解如何变成可计算的训练目标。}
+设词表大小为$V_{\rm voc}$，$x_t\in\{1,\ldots,V_{\rm voc}\}$，嵌入矩阵$E\in\R^{V_{\rm voc}\times d}$。由联合概率的乘法公式，反复展开$p(x_{1:T})=p(x_{1:T-1})p(x_T\mid x_{<T})$即可得到式\eqref{eq:llm-chain-probability}；这不要求token独立。以起始符提供第一个位置的条件，以结束符学习何时停止，才构成包括长度的序列分布。设因果网络对前缀$x_{<t}$产生$h_t\in\R^d$，输出矩阵$U\in\R^{V_{\rm voc}\times d}$，则
+\begin{align}
+ z_t&=Uh_t+b,\qquad p_{t,j}=\frac{e^{z_{t,j}}}{\sum_{k=1}^{V_{\rm voc}}e^{z_{t,k}}},\\
+ \ell_t&=-\log p_{t,x_t}=-z_{t,x_t}+\log\sum_ke^{z_{t,k}},\\
+ \frac{\partial\ell_t}{\partial z_{t,j}}&=p_{t,j}-\mathbf1_{j=x_t}.
+\end{align}
+因而梯度把真实token的概率向上推，把其余概率按当前质量向下推；$\partial\ell_t/\partial h_t=U^{\mathsf T}(p_t-e_{x_t})$再经网络反传。数值实现用$\log\sum_ke^{z_k}=m+\log\sum_ke^{z_k-m}$，其中$m=\max_k z_k$，避免指数溢出。
+
+训练时可一次输入整段右移后的真实token，并用因果遮罩并行计算所有位置；第$t$个输出的目标必须是尚未作为该位置可见输入的$x_t$，否则会退化成复制任务。填充位置不计损失，指令微调还可只对回答位置计损失。归一化应按实际计分token数而非填充后的矩阵大小进行。训练并行并不改变生成时必须逐步追加未知token的事实。
+
+固定同一个输入前缀$c$，设真实条件分布为$q(\cdot\mid c)$，则期望交叉熵分解为
+\begin{equation}
+ -\sum_jq_j\log p_j=-\sum_jq_j\log q_j+\KL(q\|p).
+\end{equation}
+第一个熵项与参数无关，最大似然因此在可表达范围内逼近训练分布，而不是直接优化事实核查。语料若反复出现过期条款，拟合得更好甚至可能增强过期回答的概率。这是外部证据管理不能被预训练规模替代的数学原因。
+
+Tokenizer 在有限词表下平衡覆盖率与序列长度。词表过小会产生较长序列，词表过大则增加嵌入参数，并使部分低频 token 缺少训练。设备编号、故障码和单位可能被切成多个片段，因此语言模型是否能正确复制这些字符串，需要单独检验。标准注意力的计算量随序列长度呈二次增长，比较上下文成本时也应记录 token 数，而非只比较字符数。
+
+自注意力由输入$H$生成查询、键和值：
+\begin{equation}
+ Q=HW_Q,\quad K=HW_K,\quad V=HW_V,
+ \qquad A=\operatorname{softmax}\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}+M\right),
+\end{equation}
+其中$d_k$为键的维度。自回归模型令$M_{ij}=-\infty$（当$j>i$），其余位置为零，使当前位置不能读取后续 token。多头注意力以不同投影组合上下文，前馈网络进一步变换表示，残差连接和归一化控制深层计算。各个头可能学到不同关系，但不能预先认定某个头必然负责特定语义。
+
+预归一化将归一化放在子层之前，保留较直接的残差梯度路径；后归一化改变了残差输出的尺度。因而 Transformer 是一组可以组合的结构选择，而非唯一固定的网络。理解注意力方向后，才能区分双向表示学习与因果生成的任务边界。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Latex, node distance=0.65cm, every node/.style={font=\small}]
+ \node[draw, rounded corners, fill=blue!10, minimum width=3cm, minimum height=0.7cm] (tok) {Token 序列};
+ \node[draw, rounded corners, fill=orange!12, below=of tok, minimum width=3cm, minimum height=0.7cm] (emb) {词嵌入 + 位置};
+ \node[draw, rounded corners, fill=green!12, below=of emb, minimum width=3cm, minimum height=0.7cm] (att) {多头因果注意力};
+ \node[draw, rounded corners, fill=yellow!20, below=of att, minimum width=3cm, minimum height=0.7cm] (ffn) {前馈网络 + 残差};
+ \node[draw, rounded corners, fill=red!10, below=of ffn, minimum width=3cm, minimum height=0.7cm] (head) {词表 logits};
+ \draw[->, thick] (tok)--(emb); \draw[->, thick] (emb)--(att); \draw[->, thick] (att)--(ffn); \draw[->, thick] (ffn)--(head);
+\end{tikzpicture}
+\caption{自回归语言模型的基本计算链条。}
+\label{fig:llm-computation-chain}
+\end{figure}
+
+图\ref{fig:llm-computation-chain}从离散 token 追踪到词表 logits，说明嵌入、因果注意力和前馈变换如何共同产生下一词元的打分，而非直接检索一条既存答案。
+\section{预训练、对齐与推理}
+图\ref{fig:llm-decoding-loop}的反馈箭头表示选定 token 被追加到上下文；这使后续分布依赖先前生成结果，也解释了训练并行与推理逐步执行的区别。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.72cm and 0.7cm]
+ \node[idi input, minimum width=1.7cm] (ctx) {上下文\\$x_{<t}$};
+ \node[idi state, right=of ctx, minimum width=1.8cm] (net) {Transformer\\隐藏状态};
+ \node[idi process, right=of net, minimum width=1.8cm] (logit) {词表 logits\\$z_t$};
+ \node[idi output, right=of logit, minimum width=1.8cm] (prob) {温度 softmax\\$p(x_t)$};
+ \node[idi input, below=0.75cm of prob, minimum width=1.8cm] (sample) {采样/贪心\\选定 token};
+ \draw[idi arrow] (ctx)--(net); \draw[idi arrow] (net)--(logit); \draw[idi arrow] (logit)--(prob); \draw[idi arrow] (prob)--(sample);
+ \draw[idi feedback] (sample.west) -- node[below,font=\scriptsize]{追加到上下文} (ctx.south |- sample.west) -- (ctx.south);
+\end{tikzpicture}
+\caption{自回归解码的单步迭代：模型先形成词表分布，再把选中的 token 反馈给下一步。}
+\label{fig:llm-decoding-loop}
+\end{figure}
+指令微调和人类反馈训练的典型路线可参照 InstructGPT，直接偏好优化则把偏好学习转写为对语言模型的优化目标\cite{ouyang2022instruct,rafailov2023dpo}。LoRA 的低秩参数更新有独立的结构假设\cite{hu2021lora}，不应与对齐目标混为一谈。
+语言模型的主要分歧来自预训练任务和注意力方向，而不只是参数规模。BERT 属于 encoder-only 架构，通过双向注意力和 masked language modeling 学习上下文表示，适合分类、序列标注和检索重排序；Generative Pretrained Transformer (GPT)、LLaMA 等 decoder-only 模型使用因果掩码，只根据前文预测下一个 token，天然适合连续生成和工具调用；Text-to-Text Transfer Transformer (T5) 属于 encoder--decoder 架构，把分类、摘要、问答等任务统一写成文本到文本的条件生成。工业系统应依据输出形式选择架构：需要稳定字段分类时，BERT 类模型更容易校准；需要长文本生成时，GPT/LLaMA 类模型更直接；需要输入输出长度差异明显的转换任务时，T5 类结构可减少提示工程依赖。
+
+decoder-only 模型在第$t$步优化
+\begin{equation}
+ \mathcal{L}_{\mathrm{CLM}}=-\sum_{t=1}^{T}\log p_\theta(x_t\mid x_{<t}),
+\end{equation}
+而 BERT 的掩码目标只在被遮蔽位置计算损失。两者的训练信号不同，因此不能仅用参数量推断迁移效果。对于设备手册和维修记录，可以先用 encoder 模型做语义检索和事件分类，再用 decoder 模型生成带证据引用的维修建议；这种组合通常比让一个生成模型独立完成所有步骤更容易审计。
+
+当模型容量继续增加时，稀疏混合专家（Mixture-of-Experts, MoE）用路由器为每个 token 选择少数专家：
+\begin{equation}
+ y=\sum_{e\in\mathcal{S}(x)}g_e(x)E_e(x),\qquad |\mathcal{S}(x)|\ll E.
+\end{equation}
+Switch Transformer 采用近似 top-1 路由，降低每个 token 的激活计算；更复杂的 top-2 路由能够提高容量利用，但需要处理专家负载不均和通信开销。MoE 的“总参数量”不等于“单次推理成本”，工业部署必须分别报告总存储、激活参数、路由丢弃率和跨卡通信。
+
+\begin{table}[htbp]
+\centering
+\caption{语言模型架构与工业任务匹配}
+\label{tab:llm-architectures}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{p{2.7cm}p{3.8cm}p{3.7cm}p{3.8cm}}
+\hline
+架构路线 & 训练与注意力方向 & 优势 & 工业任务和风险 \\
+\hline
+BERT 类 encoder-only & 双向掩码建模 & 表示稳定、分类和检索高效 & 事件分类、实体抽取、重排序；不直接生成长文本 \\
+GPT/LLaMA 类 decoder-only & 因果下一 token 预测 & 生成、对话和工具调用自然 & 报告草拟、脚本生成；需防幻觉和提示注入 \\
+T5 类 encoder--decoder & 条件文本到文本 & 输入输出长度灵活、任务统一 & 摘要、规范化和文本转换；部署链路更复杂 \\
+MoE 语言模型 & 路由器选择少数专家 & 总容量大而激活成本可控 & 多领域共享；需监控负载和通信 \\
+\hline
+\end{tabular}}
+\end{table}
+
+表\ref{tab:llm-architectures}将注意力方向和训练任务与工业输出要求对应，提示读者把分类检索、连续生成和条件转换分开选型，并单独核算 MoE 的通信成本。
+\paragraph{预训练目标与困惑度。}
+语言模型的平均负对数似然为
+\begin{equation}
+ \mathcal{L}_{LM}=-\frac1T\sum_{t=1}^{T}\log p_\theta(x_t\mid x_{<t}).
+\end{equation}
+困惑度定义为$\operatorname{PPL}=\exp(\mathcal{L}_{LM})$，可以理解为模型在每个位置面对的有效候选数。困惑度适合比较相同 tokenization 和数据分布下的语言模型，但不能单独代表事实性、帮助性或工业任务质量。
+
+\paragraph{缩放、数据质量与模型容量。}
+模型参数量、训练 token 数和计算预算共同影响性能，但增加规模并不能弥补重复、污染或错误数据。高质量语料需要去重、过滤个人信息、识别模板化文本，并建立训练数据与评测数据的隔离。对于工业语料，还需处理机密信息、专有术语和时间有效性。
+
+近重复文本可能降低训练损失，却不增加新的知识覆盖。若训练语料包含评测问题或答案模板，较低困惑度也不能证明迁移能力。固定计算预算下，应同时记录参数规模、有效 token 数、序列长度、训练步数和去重比例。工业语料还需要保存来源、许可和生效时间，使旧版本规程始终与适用设备绑定。
+
+预训练提供语言分布的基础，监督微调则用示范答案塑造任务行为。上下文学习只改变当前输入条件，不更新参数。偏好优化进一步利用同一提示下的优选与非优选答案调整输出。Reinforcement Learning from Human Feedback (RLHF) 通常训练奖励模型并优化带参考策略约束的目标，Direct Preference Optimization (DPO) 则直接学习相对于参考模型的回答概率比。参考模型提供约束基准，但不保证事实性或原有能力完全保留，仍需独立评价。
+
+\paragraph{监督微调与参数高效适配。}
+全量微调更新所有参数，成本随模型规模增长。LoRA在权重更新上使用低秩分解
+\begin{equation}
+ W'=W+\frac{\alpha}{r}BA,\qquad B\in\mathbb{R}^{d\times r},\ A\in\mathbb{R}^{r\times k},\ r\ll\min(d,k).
+\end{equation}
+它只训练$A,B$，便于为不同设备、部门或任务保存轻量适配器。参数高效方法降低存储成本，但多个适配器之间可能产生干扰，需要明确版本和适用域。
+
+对一个$d\times k$矩阵，全量更新需要$dk$个参数，LoRA 仅需$r(d+k)$个，参数节省比例为
+\begin{equation}
+ 1-\frac{r(d+k)}{dk}.
+\end{equation}
+低秩约束限制更新所在的方向，秩过小可能无法表达目标域变化。因此应同时比较任务效果、可训练参数、训练显存及适配器合并后的推理成本，而不是只比较保存文件的大小。
+
+\paragraph{低秩更新的前向与反向计算。}
+对单个线性层，令输入$x\in\R^k$、输出$y\in\R^d$、冻结权重$W\in\R^{d\times k}$，并记$s=\alpha/r$。LoRA并非先构造完整更新再相乘，而可按
+\begin{equation}
+ v=Ax\in\R^r,\qquad y=Wx+sBv
+\end{equation}
+计算。若上游梯度为$g=\nabla_y\mathcal L\in\R^d$，由微分$d\mathcal L=g^{\mathsf T}dy$逐项整理得
+\begin{align}
+ \nabla_B\mathcal L&=s\,g(Ax)^{\mathsf T},\\
+ \nabla_A\mathcal L&=s\,B^{\mathsf T}g\,x^{\mathsf T},\\
+ \nabla_x\mathcal L&=W^{\mathsf T}g+sA^{\mathsf T}B^{\mathsf T}g.
+\end{align}
+即使$W$冻结，反向传播仍可能需要穿过它，且前向激活仍需存储，所以可训练参数减少不等于训练显存按同一比例减少。常用$A$随机初始化、$B=0$，使初始模型严格等于基座；第一步$\nabla_A=0$而$\nabla_B$一般不为零，随后$B$变化才使$A$获得梯度。若两者都初始化为零，两组梯度都为零，会阻断学习。
+
+更新满足$\operatorname{rank}(BA)\leq r$。若理想全量更新$\Delta W_*$的奇异值为$\sigma_1\geq\cdots\geq\sigma_s$，其最佳秩$r$的Frobenius范数近似误差为$\sum_{j>r}\sigma_j^2$的平方根。这解释了低秩假设依赖任务变化是否集中在少数方向，但不意味着实际非凸训练一定找到这个近似。部署时可把$sBA$合并进$W$以消除额外分支，前提是适配器固定且数值格式兼容；动态切换适配器、量化权重与合并精度则需另外验证。
+
+\paragraph{从偏好概率到直接偏好优化。}
+设提示为$q$，完整回答为$y$，策略为$\pi_\theta(y\mid q)$，冻结参考策略为$\pi_{\rm ref}$。假设参考策略在所比较回答上概率为正，先考虑给定$q$的KL正则目标
+\begin{equation}
+ \max_\pi\left\{\sum_y\pi(y\mid q)r(q,y)
+ -\beta\sum_y\pi(y\mid q)\log\frac{\pi(y\mid q)}{\pi_{\rm ref}(y\mid q)}\right\},\qquad\beta>0.
+\end{equation}
+用乘子$\lambda$约束$\sum_y\pi(y\mid q)=1$，对每个$\pi(y\mid q)$求导，得到
+\begin{equation}
+ r(q,y)-\beta\left(\log\frac{\pi(y\mid q)}{\pi_{\rm ref}(y\mid q)}+1\right)+\lambda=0.
+\end{equation}
+归一化后，最优策略为$\pi^*(y\mid q)=\pi_{\rm ref}(y\mid q)e^{r(q,y)/\beta}/Z(q)$，即
+\begin{equation}
+ r(q,y)=\beta\log\frac{\pi^*(y\mid q)}{\pi_{\rm ref}(y\mid q)}+\beta\log Z(q).
+\end{equation}
+再假设偏好符合Bradley--Terry模型，优选回答$y^+$胜过$y^-$的概率为$\sigma(r(q,y^+)-r(q,y^-))$。同一提示的$\log Z(q)$相消，用$\pi_\theta$参数化最优策略便得到
+\begin{align}
+ a_\theta&=\beta\left[\log\frac{\pi_\theta(y^+\mid q)}{\pi_{\rm ref}(y^+\mid q)}-
+ \log\frac{\pi_\theta(y^-\mid q)}{\pi_{\rm ref}(y^-\mid q)}\right],\\
+ \mathcal L_{\rm DPO}&=-\E_{(q,y^+,y^-)}\log\sigma(a_\theta),\\
+ \nabla_\theta\ell_{\rm DPO}&=-\beta\sigma(-a_\theta)
+ [\nabla_\theta\log\pi_\theta(y^+\mid q)-\nabla_\theta\log\pi_\theta(y^-\mid q)].
+\end{align}
+回答的对数概率是其token条件对数概率之和，提示本身不计入回答似然。这个目标提高相对于参考模型的偏好差，并非单独保证优选回答的绝对概率上升。偏好噪声、回答长度偏差、策略表达能力和有限离线数据都会破坏理想推导的前提；若标注者偏好自信但错误的答案，目标本身不会自动发现错误。KL约束与偏好数据因而不能替代事实和规程验收。
+
+\paragraph{解码与生成控制。}
+贪心解码每次选择最大概率 token，束搜索维护多个候选序列，温度采样使用
+\begin{equation}
+ p_{\tau_{\mathrm{dec}}}(x_t=j\mid x_{<t})
+ =\frac{\exp(z_{t,j}/\tau_{\mathrm{dec}})}{\sum_{k=1}^{V_{\mathrm{voc}}}\exp(z_{t,k}/\tau_{\mathrm{dec}})}.
+\end{equation}
+这里$z_t\in\R^{V_{\mathrm{voc}}}$为当前词表 logits，$V_{\mathrm{voc}}$为词表大小，$j$为候选词元编号，$\tau_{\mathrm{dec}}>0$为解码温度，与序列长度$T$区分。
+温度越高，分布越平坦。top-$k$和 nucleus sampling 通过截断低概率尾部控制随机性。事实问答和工具调用通常需要低随机性与结构化输出，创意生成则可以接受更高多样性。
+
+\paragraph{温度、序列概率与缓存的边界。}
+固定当前logits，两个token的概率比满足
+\begin{equation}
+ \log\frac{p_\tau(j)}{p_\tau(k)}=\frac{z_j-z_k}{\tau}.\label{eq:llm-temperature-ratio}
+\end{equation}
+由式\eqref{eq:llm-temperature-ratio}可知，$\tau\to0^+$时概率集中到最大logit集合，$\tau\to\infty$时在有限词表上趋于均匀。令$\mathcal H(\tau)=-\sum_jp_\tau(j)\log p_\tau(j)$，利用$\mathcal H=\log Z-\E_{p_\tau}[z]/\tau$及$d\E[z]/d\tau=-\Var_{p_\tau}(z)/\tau^2$，得到
+\begin{equation}
+ \frac{d\mathcal H}{d\tau}=\frac{\Var_{p_\tau}(z)}{\tau^3}\geq0.
+\end{equation}
+温度增加确实增加这个固定前缀下的分布熵，但不保证生成事实更多样或更正确，因为后续前缀也随采样改变。top-$k$或top-$p$先选择集合$S$再按$p'(j)=p(j)\mathbf1_{j\in S}/\sum_{r\in S}p(r)$归一化，已经改变原始模型分布。
+
+贪心逐步取最大条件概率，也不等于最大化完整序列概率。例如第一步两条路径概率为$0.6,0.4$，第二步各自最优续接概率为$0.5,0.9$，两条最优完整路径概率分别为$0.30,0.36$；贪心会错过第二条。束搜索只保留有限候选，也不能保证全局最优，长度处理和终止规则还会改变比较方式。
+
+设批大小为$B$、层数为$L$、缓存长度为$T$、键值头数为$H_{\rm kv}$、每头维度为$d_h$，每元素占$b$字节，则仅键和值缓存占用约为
+\begin{equation}
+ M_{\rm KV}=2BLTH_{\rm kv}d_hb.
+\end{equation}
+单个新查询仍需与$T$个历史键比较，标准全局注意力的新token成本仍随上下文线性增加，连续生成的累计注意力计算仍可能呈二次增长。缓存节省的是旧键值投影和旧位置的重复计算，并不把任意长上下文变成常数成本。不同键值头共享方案还会改变缓存与表达能力的折中。
+
+生成时只新增一个 token，KV cache 保存已计算的历史键和值以减少重复计算，但缓存占用随上下文增长。缓存管理还需保证会话隔离与敏感内容清理。量化可以降低内存开销，却应在故障码、数值、单位和工具参数上单独验证。低温度和缓存优化只改变生成行为与资源消耗，不能补足模型缺少的有效规程，因此还需要外部检索。
+
+\section{检索、工具与安全边界}
+检索增强生成将外部检索证据与生成模型结合，Retrieval-Augmented Generation (RAG) 的原始工作给出了知识密集任务中的代表性实现\cite{lewis2020rag}。工业手册检索还需要额外约束版本、生效时间和权限，这些属于本书的应用规则，不能由生成模型自身保证。
+\paragraph{检索增强生成。}
+给定查询$q$，检索器返回文档$D_q$，生成器计算$p(y\mid q,D_q)$。系统误差可分为召回错误、排序错误、上下文理解错误和生成错误。评估时应分别测量检索召回率、引用是否支持答案、答案完整性和拒答质量。检索系统不能把不存在的证据变成可靠事实。
+
+\paragraph{检索得分、训练目标与证据边缘化。}
+设查询编码器$f_\phi$与文档编码器$g_\phi$输出$\R^d$中的非零向量，归一化后得分为$s_\phi(q,d)=f_\phi(q)^{\mathsf T}g_\phi(d)$。给定一个相关文档$d^+$和候选集合$\mathcal C$，对比检索损失为
+\begin{align}
+ P_\phi(d\mid q,\mathcal C)&=\frac{\exp(s_\phi(q,d)/\tau_r)}{\sum_{d'\in\mathcal C}\exp(s_\phi(q,d')/\tau_r)},\\
+ \ell_{\rm ret}&=-\log P_\phi(d^+\mid q,\mathcal C),\qquad \tau_r>0,\\
+ \frac{\partial\ell_{\rm ret}}{\partial s_\phi(q,d)}&=\frac{P_\phi(d\mid q,\mathcal C)-\mathbf1_{d=d^+}}{\tau_r}.\label{eq:llm-retrieval-gradient}
+\end{align}
+按式\eqref{eq:llm-retrieval-gradient}进行梯度下降会把相关文档拉近、候选负例推远，但所得概率仅相对于候选集合归一化，不是文档支持答案的校准概率。同型号不同版本尤其适合作为需要区分的候选，却必须避免把另一份同样有效的证据错误标成负例。权限和有效期先定义可搜索集合$\mathcal D(q)$，相似度排序只在这个集合内进行。
+
+为理解检索和生成怎样组合，可把相关文档$d$视为潜变量，写出简化的单文档边缘化模型
+\begin{equation}
+ p(y\mid q)=\sum_{d\in\mathcal D(q)}p_\phi(d\mid q)p_\theta(y\mid q,d).
+\end{equation}
+实际仅取top-$K$集合$S_K$。令$Z_K=\sum_{d\in S_K}p_\phi(d\mid q)$，截断并重新归一化的分布为
+\begin{equation}
+ p_K(y\mid q)=\frac1{Z_K}\sum_{d\in S_K}p_\phi(d\mid q)p_\theta(y\mid q,d).
+\end{equation}
+若$0<Z_K<1$，完整分布满足$p(y\mid q)=Z_Kp_K(y\mid q)+(1-Z_K)p_{\rm tail}(y\mid q)$，故两者对任意回答事件的概率差不超过$1-Z_K$。这个界解释了截断遗漏的影响，但工业向量得分通常没有给出真实全库后验，因此不能从top-$K$分数直接宣称已知$Z_K$。此外，将多个片段拼接到一个提示里与上述单文档混合并不等价，跨段落推理还需要联合证据。
+
+令$E$表示检索上下文包含足够有效证据，$A$表示答案正确。全概率公式给出
+\begin{equation}
+ P(A)=P(E)P(A\mid E)+P(E^{\rm c})P(A\mid E^{\rm c}).
+\end{equation}
+证据缺失时模型可能凭已有知识答对，所以一般不能声称正确率必然低于检索召回；但若验收事件要求“正确且由当前有效证据支持”，则它是$E$的子事件，其概率必不超过$P(E)$。这正是分别评价召回、答案正确性和引用支持率的理由。增加$K$可能提高召回，也可能加入冲突或噪声，需要固定上下文预算作分层验证。
+
+工业知识问答应把 RAG 拆成可独立验收的流水线。离线阶段按照设备、部件、工况和有效时间切分手册，保留章节标题、表格关系、版本号和页码；切块时不能把“警告条件”和“处理步骤”拆到互不相邻的向量中。检索阶段可以先用 Best Matching 25 (BM25) 召回精确故障码，再用向量检索补充语义相近描述，最后由 cross-encoder 重排序。生成阶段要求模型输出答案、证据片段、文档版本和不确定性状态；当证据覆盖不足时，应拒答或请求更多设备上下文。
+
+评估集需要按问题类型分层：直接查表、跨段落组合、版本冲突、过期规程、未登录故障码和恶意提示。对每个问题分别记录检索召回、证据支持率、答案正确率、引用准确率和拒答质量。一个语言模型即使在开放问答上流畅，也可能在版本冲突时选择了旧规程；因此文档有效期和权限过滤必须作为检索条件，而不是依赖生成模型自行判断。
+
+\paragraph{工具调用与评测。}
+工具调用把模型输出限制为结构化参数，再由外部程序执行查询、计算或控制动作。工业系统应采用白名单工具、参数校验、权限隔离和人工确认。评测集需要覆盖正常任务、边界输入、对抗提示、过时知识和工具失败。困惑度与任务准确率并不等价，LoRA 的参数量优势也必须结合任务迁移效果和推理开销评价。
+
+\paragraph{幻觉、提示注入与安全边界。}
+幻觉不仅是“模型说错话”，还包括引用不存在、混淆设备型号、把条件性建议表达成确定事实。系统应允许模型在证据不足时拒答，并显示证据覆盖范围。提示注入则利用文档或用户输入改变系统指令；因此检索文本必须被视为不可信数据，工具调用必须通过结构化参数、权限检查和资源范围限制。
+
+\paragraph{大模型评测矩阵。}
+工业评测应至少包含四个轴：语言能力、任务正确性、证据忠实度和系统可靠性。语言能力可测困惑度或结构化遵循；任务正确性应使用专家标注或可验证程序；证据忠实度检查答案是否被文档支持；系统可靠性则记录延迟、成本、拒答、超时和工具失败。每个轴都应按设备型号、工况、输入长度和缺失信息分层报告。
+
+\paragraph{本章小结。}
+语言大模型的能力来自token表示、因果建模、规模化训练和对齐过程的共同作用，但这些环节优化的对象不同。最大似然逼近语料分布，LoRA限制可更新的方向，偏好优化调整相对回答倾向，温度与截断改变解码分布，检索则改变当前能够引用的证据。把这些数学对象区分开来，才能判断某项改进究竟降低了什么误差，而不是把更流畅、更受偏好和更可信混为一谈。
+
+工业应用的关键不在于把模型接入界面，而在于建立数据版本、检索证据、工具权限、输出校验和持续评测组成的控制链。本章沿用型号、生效时间和预测时刻的信息边界，使文字答案始终能返回原始来源。对于故障码、量值和复检条件，正确复制与精确引用往往比措辞自然更重要；证据不足时的拒答也是系统输出的一部分。
+
+文字还需要与现场记录对应。“此处裂纹”指图中的哪个区域？“升温后异响”对应哪一段传感器记录？下一章讨论怎样配对、对齐和融合这些输入。即使放进共同的表示空间，时间戳、坐标和记录质量也要保留；几路观测有矛盾时，应指出矛盾并核查，不能靠一段流畅的描述把它们掩盖过去。

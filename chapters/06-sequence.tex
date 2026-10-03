@@ -1,0 +1,329 @@
+\chapter{序列建模模型}
+\begin{quote}\small
+\textit{本章摘要。}本章围绕一个核心问题展开：如何把历史信息压缩成对未来有用的状态。先介绍 Recurrent Neural Network (RNN)、Long Short-Term Memory (LSTM) 和 Gated Recurrent Unit (GRU) 的递归记忆，再解释注意力与 Transformer 如何改变信息访问路径，随后讨论状态空间滤波、长序列计算、多步预测和异常告警。模型比较最终要检查时间边界、提前量、非平稳性与资源消耗。
+\end{quote}
+窗口统计量可以描述振动强度，却可能抹去冲击出现的顺序。本章由此研究如何表示截至$t$的历史信息。故障概率、剩余寿命和未来轨迹是三种不同输出，后文的分钟级轨迹预测用于说明多步误差，不能与二十四小时故障概率直接比较。递归状态、注意力和状态空间模型的取舍，取决于输出需要保留哪些历史证据。
+前两章已经区分参数化表示、函数先验和预测不确定性，本章进一步追问：当观测按时间到达时，哪些信息应随状态一起保留下来？一个温度均值相同的窗口，可能对应平稳运行，也可能对应持续升温后骤降；只把窗口当作无序样本，就丢掉了区分这两种过程的依据。因此，序列建模不是在回归器前多加一个时间下标，而是规定历史如何进入当前判断，以及新的观测怎样修正已有判断。
+
+读公式时，先看模型怎样保存历史。递归模型把过去压进一个状态，注意力可以回头读取历史记录，卷积和状态空间模型则按各自的结构传递信息。再看这个状态是否还带有协方差：一组确定数值和一个状态分布，能表达的不确定性不同。最后核对输出到底是什么。预测未来温度曲线、预测故障概率和给当前窗口打异常分数，需要不同的标签，也对应不同的维护动作。
+\section{序列与状态}
+图\ref{fig:sequence-recurrent-state}中，纵向箭头把当前输入写入状态，横向箭头将历史传到下一时刻，最终预测因而依赖状态保留下来的信息。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.55cm and 0.6cm]
+ \node[idi input, minimum width=1.45cm] (x1) {$x_{t-2}$};
+ \node[idi input, right=of x1, minimum width=1.45cm] (x2) {$x_{t-1}$};
+ \node[idi input, right=of x2, minimum width=1.45cm] (x3) {$x_t$};
+ \node[idi state, above=0.75cm of x1, minimum width=1.45cm] (h1) {$h_{t-2}$};
+ \node[idi state, above=0.75cm of x2, minimum width=1.45cm] (h2) {$h_{t-1}$};
+ \node[idi state, above=0.75cm of x3, minimum width=1.45cm] (h3) {$h_t$};
+ \draw[idi arrow] (x1)--(h1); \draw[idi arrow] (x2)--(h2); \draw[idi arrow] (x3)--(h3);
+ \draw[idi arrow] (h1)--(h2); \draw[idi arrow] (h2)--(h3);
+ \node[above=0.25cm of h2,font=\scriptsize] {状态沿时间向前传递并压缩历史};
+ \node[idi output, right=0.7cm of h3, minimum width=1.45cm] (y) {$\hat y_{t+1}$};
+ \draw[idi arrow] (h3)--(y);
+\end{tikzpicture}
+\caption{递归序列模型把历史压缩为状态；状态维度和更新机制决定哪些信息能够持续保留。}
+\label{fig:sequence-recurrent-state}
+\end{figure}
+LSTM 的门控记忆用于改善长时依赖中的信息与梯度传播\cite{hochreiter1997lstm}。与之相对，线性高斯状态估计中的 Kalman 滤波显式传播状态均值和协方差\cite{kalman1960filter}；二者不能因为都有隐状态就被视为相同的推断方法。
+序列数据$(x_1,\ldots,x_T)$具有顺序依赖。状态空间模型用隐状态$h_t$压缩历史信息：
+\begin{equation}
+ h_t=g(h_{t-1},x_t),\qquad p(y_t\mid x_{\leq t})=p(y_t\mid h_t).
+\end{equation}
+状态的核心作用不是记住所有历史，而是在给定任务下保留预测未来所需的信息。
+
+\paragraph{递归状态与门控记忆。}
+最基本的RNN为$h_t=\tanh(W_hh_{t-1}+W_xx_t+b)$。反向传播时，梯度包含多个$W_h$的乘积，可能出现梯度消失或爆炸。LSTM通过门控缓解这一问题：
+\begin{align}
+ i_t&=\sigma(W_ix_t+U_ih_{t-1}),& f_t&=\sigma(W_fx_t+U_fh_{t-1}),\label{eq:sequence-lstm-input-forget}\\
+ o_t&=\sigma(W_ox_t+U_oh_{t-1}),& \tilde c_t&=\tanh(W_cx_t+U_ch_{t-1}),\label{eq:sequence-lstm-output-candidate}\\
+ c_t&=f_t\odot c_{t-1}+i_t\odot\tilde c_t,& h_t&=o_t\odot\tanh(c_t).
+\end{align}
+细胞状态提供了更稳定的信息通道。GRU用更少的门实现类似的更新。
+
+门控的必要性可以从训练梯度理解。
+对简单RNN，隐藏状态对早期状态的导数包含
+\begin{equation}
+ \frac{\partial h_T}{\partial h_t^{\mathsf T}}=J_TJ_{T-1}\cdots J_{t+1},\qquad
+ J_s=\diag\left(1-\tanh^2(a_s)\right)W_h.
+\end{equation}
+这里$a_s=W_hh_{s-1}+W_xx_s+b$，Jacobian 的第$(i,j)$项为输出第$i$分量对输入第$j$分量的偏导，乘法按式中从左到右的顺序执行；反向传播列梯度时使用这一 Jacobian 的转置。
+若乘积中的最大奇异值长期小于一，梯度趋向零；若大于一，梯度可能爆炸。梯度裁剪把$g$替换为$g\min(1,\tau/\|g\|)$，可以控制爆炸但不能修复长期消失。LSTM的细胞状态通过门$f_t$保留一条近似加法路径，使信息保存时间由门值控制。
+
+非线性导数$1-\tanh^2(a_s)$在饱和区域接近零，因此仅控制循环权重的尺度仍不足以保证长期梯度。对于长流，可以每$K$步截断计算图以控制训练内存，前向状态仍可携带更早的信息，但早期输入不能通过被截断的路径直接贡献梯度。窗口长度与截断长度因而是不同的实验变量。
+
+\paragraph{从单步导数到跨时间反向传播。}
+设$x_t\in\R^p$、$h_t\in\R^m$，于是$W_x\in\R^{m\times p}$、$W_h\in\R^{m\times m}$、$b\in\R^m$。令总损失为$\mathcal L=\sum_{t=1}^T\ell_t(h_t)$，用列向量$g_t=\nabla_{h_t}\mathcal L$表示包含所有后续损失的梯度。链式法则逐步给出
+\begin{align}
+ g_T&=\nabla_{h_T}\ell_T,\\
+ g_t&=\nabla_{h_t}\ell_t+J_{t+1}^{\mathsf T}g_{t+1},\\
+ g_t&=\sum_{s=t}^T(J_sJ_{s-1}\cdots J_{t+1})^{\mathsf T}\nabla_{h_s}\ell_s,
+\end{align}
+其中$s=t$时空乘积为$I$。再令$\delta_t=\diag(1-h_t\odot h_t)g_t$，共享权重的梯度不是某一步的梯度，而是所有出现位置的累加：
+\begin{equation}
+ \nabla_{W_h}\mathcal L=\sum_{t=1}^T\delta_t h_{t-1}^{\mathsf T},\qquad
+ \nabla_{W_x}\mathcal L=\sum_{t=1}^T\delta_t x_t^{\mathsf T}.
+\end{equation}
+由矩阵范数的次乘性，$\|J_s\cdots J_{t+1}\|_2\leq\prod_{r=t+1}^s\|J_r\|_2$。若每项至多为$\rho<1$，远期损失传回的上界按$\rho^{s-t}$衰减；若上界大于一，仅意味着可能放大，不能据此断言实际梯度必然爆炸，因为奇异方向会随时间改变。
+
+在LSTM中，$x_t\in\R^p$，各门、$c_t,h_t\in\R^m$，所以各$W$为$m\times p$、各$U$为$m\times m$；式\eqref{eq:sequence-lstm-input-forget}和式\eqref{eq:sequence-lstm-output-candidate}省略了可训练偏置。固定门值时，沿细胞状态直接路径有
+\begin{equation}
+ \left.\frac{\partial c_T}{\partial c_t^{\mathsf T}}\right|_{\text{直接路径}}
+ =\diag\left(\prod_{s=t+1}^T f_s\right).
+\end{equation}
+乘积按元素计算。若某维遗忘门近似恒为$f\in(0,1)$，经过$k$步保留$f^k$，其衰减到初值$e^{-1}$所需步数为$-1/\log f$。这解释了门值与记忆时间尺度的关系，但不是完整Jacobian：门还通过$h_{t-1}$依赖早期状态，其他路径仍会放大或衰减梯度。门控改善可训练性，不保证无限记忆。
+
+\paragraph{GRU 的参数化。}
+GRU使用更新门和重置门
+\begin{align}
+ z_t&=\sigma(W_zx_t+U_zh_{t-1}),\\
+ r_t&=\sigma(W_rx_t+U_rh_{t-1}),\\
+ \tilde h_t&=\tanh(W_hx_t+U_h(r_t\odot h_{t-1})),\\
+ h_t&=(1-z_t)\odot h_{t-1}+z_t\odot\tilde h_t.
+\end{align}
+更新门接近零时保留旧状态，接近一时写入候选状态。它比LSTM参数更少，却牺牲了对细粒度记忆通道的独立控制。
+
+\section{注意力、Transformer 与长依赖}
+图\ref{fig:sequence-attention-query}区分历史键用于匹配、历史值用于输出的两条路径；当前查询通过归一化权重决定读取哪些历史内容。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.8cm and 0.7cm]
+ \node[idi input, minimum width=1.8cm] (q) {当前查询\\$q_i$};
+ \node[idi state, right=of q, minimum width=2.0cm] (score) {与历史键\\计算相似度};
+ \node[idi process, right=of score, minimum width=2.0cm] (weight) {softmax 权重\\$a_{ij}$};
+ \node[idi output, right=of weight, minimum width=2.0cm] (out) {加权值\\$o_i$};
+ \draw[idi arrow] (q)--(score); \draw[idi arrow] (score)--(weight); \draw[idi arrow] (weight)--(out);
+ \node[idi input, below=0.75cm of score, minimum width=2.0cm] (memory) {历史键和值\\$K,V$};
+ \draw[idi arrow] (memory)--(score); \draw[idi arrow] (memory)--(out);
+\end{tikzpicture}
+\caption{注意力把“压缩全部历史”改为“按查询重新读取历史”，代价是保存和计算位置间的相互作用。}
+\label{fig:sequence-attention-query}
+\end{figure}
+递归模型把全部历史压入有限维状态。当预测需要重新访问某次冲击或某段工况时，这种压缩可能成为瓶颈。注意力改为按当前查询读取历史表示，其缩放点积形式为\cite{vaswani2017attention}
+\begin{equation}
+ \operatorname{Attention}(Q,K,V)=\softmax\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}\right)V.
+\end{equation}
+直接访问缩短了远距离位置之间的信息路径，但标准全局注意力的计算量随序列长度呈二次增长。Transformer 将多头注意力、位置编码、前馈网络、残差连接和归一化组合起来。因此，从 GRU 转向 Transformer 是以保存和访问历史的成本换取更灵活的信息选择，而非无条件提高预测能力。
+
+\paragraph{注意力的逐位置解释。}
+对于第$i$个查询，注意力权重为
+\begin{equation}
+ a_{ij}=\frac{\exp(q_i^{\mathsf T}k_j/\sqrt{d_k})}{\sum_{r=1}^{T}\exp(q_i^{\mathsf T}k_r/\sqrt{d_k})},
+ \qquad o_i=\sum_j a_{ij}v_j.
+\end{equation}
+因此每个输出是值向量的加权平均。查询表示“我现在需要什么”，键表示“我具有什么索引”，值表示“被取出的内容”。多头注意力使用多组投影，让不同头分别学习局部邻接、长距离指代或语义匹配。
+
+\paragraph{缩放、归一化与访问成本的推导。}
+采用逐行存放位置表示的约定，$X\in\R^{T\times d}$、$W_Q,W_K\in\R^{d\times d_k}$、$W_V\in\R^{d\times d_v}$，所以$Q,K\in\R^{T\times d_k}$、$V\in\R^{T\times d_v}$。为理解缩放，暂设$q_i,k_j$的坐标彼此独立、均值为零、方差为一，则
+\begin{equation}
+ \E(q_i^{\mathsf T}k_j)=0,\qquad
+ \Var(q_i^{\mathsf T}k_j)=\sum_{r=1}^{d_k}\Var(q_{ir}k_{jr})=d_k.
+\end{equation}
+因此除以$\sqrt{d_k}$使得分方差约为一，避免维度增加时softmax过早饱和。这是初始化尺度的解释，不是对训练后相关特征的严格分布假设。记缩放得分为$s_{ij}$，由商法则得到
+\begin{equation}
+ \frac{\partial a_{ij}}{\partial s_{ir}}=a_{ij}(\mathbf1_{j=r}-a_{ir}).
+\end{equation}
+当一个权重已接近一时，其余权重及大量导数接近零，模型便难以调整访问对象。softmax使$a_{ij}\geq0$且$\sum_j a_{ij}=1$，单头输出因而位于值向量的凸包内；但后续投影、残差和前馈变换不受这个凸包约束。
+
+计算$QK^{\mathsf T}$需$O(T^2d_k)$次标量运算，计算$AV$需$O(T^2d_v)$；显式保存分数需$O(T^2)$空间。若无位置编码、无遮罩，令$P$为位置置换矩阵，则$Q'=PQ,K'=PK,V'=PV$，有$A'=PAP^{\mathsf T}$及$O'=PO$。这叫置换等变，而不是输出不随置换变化；网络本身无法从内容之外识别先后顺序。因果遮罩和位置编码正是为打破这种不足而加入的结构。
+
+\paragraph{位置编码与因果遮罩。}
+自注意力本身对 token 顺序置换不敏感，必须加入位置信息。正弦位置编码使用不同频率的正余弦函数；可学习位置嵌入直接为每个位置分配向量。因果遮罩令$j>i$的注意力得分为$-\infty$，从而保证第$i$个位置只能使用$1$到$i$的信息。解码时的 Key--Value (KV) cache 保存已经计算的键和值，使每次生成新 token 不必重复计算全部历史。
+
+\section{时间序列预测与状态估计}
+单步预测学习$p(x_{t+1}\mid x_{\leq t})$，多步预测可递归调用模型，也可一次输出整个未来窗口。递归策略容易累积误差，直接多步预测避免把自身输出反复作为输入，但参数量取决于输出头与共享结构。概率预测可以输出分位数，使用 pinball loss
+\begin{equation}
+ \ell_\tau(y,\hat y)=\max\{\tau(y-\hat y),(\tau-1)(y-\hat y)\}
+\end{equation}
+学习条件分位数，从而形成预测区间。
+
+\paragraph{多步误差为何会积累。}
+为隔离递归效应，设真实向量状态满足$x_{t+1}=f_*(x_t)+\eta_{t+1}$，预测器递归使用$\hat x_{t+h}=f_\theta(\hat x_{t+h-1})$，初值$\hat x_t=x_t$。假设在所考察区域，$f_\theta$为$L$-Lipschitz，且$\|f_\theta(x)-f_*(x)\|\leq\delta$、$\|\eta_t\|\leq\epsilon$。插入并减去$f_\theta(x_{t+h-1})$，可得
+\begin{align}
+ e_h&=\|\hat x_{t+h}-x_{t+h}\|\\
+ &\leq L e_{h-1}+\delta+\epsilon\\
+ &\leq(\delta+\epsilon)\sum_{j=0}^{h-1}L^j.
+\end{align}
+当$L\ne1$时，上界为$(\delta+\epsilon)(L^h-1)/(L-1)$，当$L=1$时为$h(\delta+\epsilon)$。即便一步拟合误差小，迭代的敏感性仍可能放大误差；$L<1$时该上界则有界。这是有界噪声条件下的示意推导，高斯噪声不能直接使用统一的确定性$\epsilon$。直接多输出方法避免反馈自身误差，却不消除未来不可预测性，也不必然需要更多参数，参数量取决于共享骨干和输出头设计。
+
+\paragraph{分位数损失为何学习分位数。}
+固定历史信息$\mathcal F_t$，设未来标量$Y$的条件分布函数为$F$，候选预测为$a$，分位水平$\tau\in(0,1)$。当分布连续且允许交换微分与积分时，条件期望损失为
+\begin{align}
+ R(a)&=(1-\tau)\int_{-\infty}^{a}(a-y)\,dF(y)
+       +\tau\int_a^\infty(y-a)\,dF(y),\\
+ R'(a)&=(1-\tau)F(a)-\tau(1-F(a))=F(a)-\tau.
+\end{align}
+故最优解满足$F(a)=\tau$；有原子质量时改用次梯度，条件为$F(a^-)\leq\tau\leq F(a)$。上下分位数$\tau=\alpha/2$与$1-\alpha/2$由此形成名义覆盖率$1-\alpha$的区间。有限样本、模型失配和分布漂移会破坏实际覆盖率，不同分位数独立训练还可能交叉。每个提前量分别覆盖并不等于整条未来轨迹同时覆盖，后者需要联合分布或额外的同时覆盖校准。
+
+\paragraph{工艺参数异常预警。}
+可以把设备传感器流切成长度为$T$的窗口，输入过去$T$步，预测未来$H$步的正常轨迹。异常分数可以是预测误差、概率负对数似然或隐状态与正常原型的距离。阈值应在验证集上按告警提前量和误报预算选择，而不能直接取训练误差的某个分位数。
+
+\paragraph{状态空间模型与滤波。}
+序列模型可以拆成状态转移和观测生成两部分：
+\begin{align}
+ p(h_t\mid h_{t-1},u_t)&=\mathcal N(Ah_{t-1}+Bu_t,Q),\\
+ p(x_t\mid h_t)&=\mathcal N(Ch_t,R).
+\end{align}
+这里$u_t$可以表示控制量，$Q$和$R$分别表示状态演化噪声与观测噪声。卡尔曼滤波先用转移方程预测状态，再用新观测修正预测。深度 RNN 可以看作学习非线性转移函数，但如果忽略观测噪声和状态不确定性，就无法直接给出滤波意义下的置信区间。
+
+从这一统一视角看，现代时间序列模型是在不同位置放置“记忆”和“预测分布”。DeepAR 用自回归 RNN 输出下一时刻分布的参数，适合许多设备共享统计规律的场景；Neural Basis Expansion Analysis for Interpretable Time Series Forecasting (N-BEATS) 用堆叠的前馈块逐步拟合趋势和季节性，能够通过基函数解释预测来源，但需要固定长度窗口。Temporal Convolutional Network (TCN) 用因果空洞卷积并行处理整个窗口，感受野由卷积核和空洞率显式控制，适合高吞吐批处理；若故障信号必须在每个新采样到达时更新，带显式状态的 GRU 或状态空间模型通常更自然。
+
+Transformer 系列则把时间点或时间片看作 token。Informer 使用稀疏概率注意力和序列蒸馏，减少长序列的二次成本；Autoformer 先将序列分解为趋势和季节项，再用自相关机制寻找周期模式；FEDformer 在频域或低秩结构中进行全局建模；PatchTST 把连续时间片切成 patch，以更少 token 保留局部形状，并在规则采样的长预测任务中形成强基线。PatchTST 对缺失时间戳和事件驱动数据并不天然稳健，因此应显式加入时间间隔、缺失掩码和设备身份，而不能直接把图像 Vision Transformer (ViT) 的 patch 机制照搬到所有传感器流。
+
+当序列长度使注意力矩阵无法存储时，结构化状态空间模型提供了另一种计算路径。Structured State Space Sequence Model (S4) 将连续时间状态方程离散化并用结构化参数高效计算长卷积，试图同时获得长记忆和线性复杂度；选择性状态空间模型 Mamba 进一步让输入控制状态更新、遗忘和输出，使模型可以对不同事件选择不同的记忆时间尺度。它们适合超长振动流、日志流和在线扫描，但状态压缩也可能丢失需要精确回看的单次事件。比较 Transformer、TCN、S4 和 Mamba 时，应同时报告短暂冲击的召回、长周期趋势误差、流式延迟、显存和窗口外推能力。
+
+\begin{table}[htbp]
+\centering
+\caption{序列模型路线与工业选择}
+\label{tab:sequence-model-selection}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{p{2.4cm}p{3.8cm}p{3.6cm}p{4.1cm}}
+\hline
+模型路线 & 记忆机制 & 计算与部署特征 & 更适合的工业问题 \\
+\hline
+LSTM/GRU & 显式递归状态与门控 & 顺序计算，流式更新简单 & 不规则到达、在线状态跟踪、样本有限 \\
+TCN & 因果空洞卷积与固定感受野 & 可并行训练，窗口外推有限 & 高频批处理、固定提前量预测 \\
+Transformer & 全局注意力与位置编码 & 长度平方级注意力，缓存可降低解码重复 & 长距离依赖、数据量较大、离线分析 \\
+PatchTST/Informer & patch 或稀疏注意力 & 减少 token，依赖规则采样假设 & 长窗口、多变量、规则传感器流 \\
+S4/Mamba & 结构化或选择性状态空间 & 线性扫描，适合超长流式输入 & 长振动流、日志流、低延迟连续监控 \\
+\hline
+\end{tabular}}
+\end{table}
+
+表\ref{tab:sequence-model-selection}按记忆机制和部署成本比较序列模型，选型时应将流式更新、固定窗口与长历史访问的要求对应到具体工业任务。
+\paragraph{多头注意力的张量形状。}
+设批大小为$B$、序列长度为$T$、模型维度为$d$、头数为$H$，每头维度为$d_h=d/H$。输入形状为$B\times T\times d$，投影后重排为$B\times H\times T\times d_h$，注意力分数形状为$B\times H\times T\times T$。最后一个$T\times T$矩阵解释了长序列的显存瓶颈：即使参数量不大，二次注意力也可能无法处理高频传感器流。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Latex, node distance=0.65cm, every node/.style={font=\small}]
+ \node[draw, rounded corners, fill=blue!10, minimum width=2.2cm, minimum height=0.75cm] (x) {$x_{1:T}$};
+ \node[draw, rounded corners, fill=orange!12, right=of x, minimum width=2.4cm, minimum height=0.75cm] (qkv) {$Q,K,V$ 投影};
+ \node[draw, rounded corners, fill=green!12, right=of qkv, minimum width=2.5cm, minimum height=0.75cm] (att) {多头注意力};
+ \node[draw, rounded corners, fill=yellow!18, right=of att, minimum width=2.2cm, minimum height=0.75cm] (ffn) {前馈网络};
+ \node[draw, rounded corners, fill=red!10, right=of ffn, minimum width=2.0cm, minimum height=0.75cm] (y) {$h_{1:T}$};
+ \draw[->, thick] (x)--(qkv); \draw[->, thick] (qkv)--(att); \draw[->, thick] (att)--(ffn); \draw[->, thick] (ffn)--(y);
+ \draw[->, dashed] (x.north) .. controls +(0,0.85) and +(0,0.85) .. node[above,font=\scriptsize]{注意力子层残差} ($(att.east)!0.5!(ffn.west)$);
+ \node[below=0.2cm of ffn,font=\scriptsize] {归一化与前馈残差略};
+\end{tikzpicture}
+\caption{Transformer 编码块的主要信息流。}
+\label{fig:sequence-transformer-flow}
+\end{figure}
+
+图\ref{fig:sequence-transformer-flow}沿投影、注意力和前馈变换展示编码路径，虚线则标出绕过注意力子层的残差通路；二者共同形成各位置的输出表示。
+\paragraph{位置编码的选择。}
+绝对位置编码把位置直接加到 token 表示中，简单但长度外推能力有限；相对位置编码直接描述 token 间距离，更适合长度变化；旋转位置编码通过复数相位或二维旋转改变查询和键，使点积携带相对位置信息。选择位置编码时要同时考虑训练长度、部署长度和缓存机制，不能只比较短序列上的损失。
+
+\paragraph{时间序列中的非平稳性。}
+趋势、季节性、工况切换和传感器老化会使$p(x_{t+1}\mid x_{\le t})$随时间变化。差分、归一化、分解和时间特征可以减少非平稳性，但也可能删除故障前的有用趋势。滚动验证比随机交叉验证更适合检验未来性能；模型更新还应区分概念漂移与测量系统改变。
+
+\section{训练、预测与工业告警}
+\paragraph{序列模型实验矩阵。}
+至少应比较：持久性或季节性基线、线性模型、树模型、RNN/TCN 和 Transformer。固定预测提前量后，再改变窗口长度、模型容量和缺失处理。评价不仅包括 MAE 或交叉熵，还应包含延迟、显存、吞吐、异常事件召回率和预测区间覆盖率。只有当复杂模型在关键约束下仍有稳定收益，才说明其结构提供了有效归纳偏置。
+
+以轴承剩余寿命（Remaining Useful Life，RUL）预警为例，首先把原始振动、温度、转速和负载按照设备时钟对齐，并保留每一路的采样时间、缺失标记和传感器版本。随后用设备级而非窗口级划分数据：同一轴承的相邻窗口必须进入同一个集合，测试设备和测试时间段完全留出。输入可以由高频振动的统计量、频谱 patch 和低频工况变量组成，目标则根据维护流程选择连续 RUL、未来$H$分钟内的失效概率或两者的多任务输出。
+
+训练阶段先比较持久性、线性外推、随机森林和 GRU，再引入 TCN、PatchTST 或 Mamba。所有模型使用相同的预测提前量、相同的训练设备和相同的标准化统计量；对 RUL 回归可以采用 Huber 损失，对失效概率采用加权交叉熵，对预测区间增加分位数损失。若失效事件很少，不能只随机抽取正常窗口，否则模型会在类别先验上获得虚假的高准确率；应按设备和事件构造训练批次，并报告事件级召回与每台设备的误报数。
+
+上线时，模型每分钟更新一次状态，告警状态机可以要求连续三个窗口超过阈值才进入高等级告警；“至少提前20分钟”是依据事后确认的故障时刻验收的目标，不能作为在线状态机已知的触发条件。输入缺失超过五分钟时，系统暂停风险结论并生成数据质量告警；恢复后先执行状态重置或冷启动窗口，避免把长时间缺失后的填充值当作真实趋势。监控面板同时展示预测轨迹、置信区间、模型版本、输入覆盖率和人工确认结果，形成从模型输出到维护动作的可追溯的处理记录。
+
+\paragraph{滤波、平滑与预测。}
+滤波只使用截至$t$的观测估计$h_t$，平滑则允许使用未来观测修正过去状态。在线故障预警只能使用滤波信息，离线诊断可以使用平滑信息。若把平滑后的状态用于训练在线预警器，模型可能隐式读取未来，导致离线指标偏高。实验报告应明确状态估计使用的信息边界。
+
+\paragraph{卡尔曼滤波的两步更新。}
+在线线性高斯状态空间模型中，预测步骤为
+\begin{align}
+ \hat h_{t\mid t-1}&=A\hat h_{t-1\mid t-1}+Bu_t,\\
+ P_{t\mid t-1}&=AP_{t-1\mid t-1}A^{\mathsf T}+Q.
+\end{align}
+观测到$x_t$后，计算创新$r_t=x_t-C\hat h_{t\mid t-1}$和增益
+\begin{equation}
+ K_t=P_{t\mid t-1}C^{\mathsf T}(CP_{t\mid t-1}C^{\mathsf T}+R)^{-1},
+\end{equation}
+再更新$\hat h_{t\mid t}=\hat h_{t\mid t-1}+K_tr_t$。创新序列可以用于检测模型失配：若其长期偏离零或自相关显著，说明转移、噪声或传感器模型需要重新估计。
+
+\paragraph{由高斯条件化推导滤波增益。}
+设$h_t\in\R^m,x_t\in\R^p,u_t\in\R^q$，则$A\in\R^{m\times m},B\in\R^{m\times q},C\in\R^{p\times m}$；$Q,P\in\R^{m\times m}$，$R\in\R^{p\times p}$。假设转移噪声与观测噪声均为零均值、跨时间独立，并与先前状态独立。记预测均值和协方差为$m^-,P^-$。线性变换的均值与协方差规则先给出前述预测步骤，再给出联合分布
+\begin{equation}
+ \begin{bmatrix}h_t\\x_t\end{bmatrix}\Bigm|x_{<t}
+ \sim\mathcal N\left(
+ \begin{bmatrix}m^-\\Cm^-\end{bmatrix},
+ \begin{bmatrix}P^-&P^-C^{\mathsf T}\\CP^-&CP^-C^{\mathsf T}+R\end{bmatrix}\right).
+\end{equation}
+为看清条件化的来源，令$e=h_t-m^-$、$r=x_t-Cm^-$、$S=CP^-C^{\mathsf T}+R$，并写出修正后的误差$e^+=e-Kr$。要求它与已经利用的创新不相关，有
+\begin{equation}
+ \operatorname{Cov}(e-Kr,r)=P^-C^{\mathsf T}-KS=0,
+ \qquad K=P^-C^{\mathsf T}S^{-1}.
+\end{equation}
+联合高斯使不相关等价于独立，因此$\E(h_t\mid x_t,x_{<t})=m^-+Kr$，且后验协方差为
+\begin{align}
+ P^+&=P^--P^-C^{\mathsf T}S^{-1}CP^-\\
+ &=(I-KC)P^-(I-KC)^{\mathsf T}+KRK^{\mathsf T}.\label{eq:sequence-joseph-covariance}
+\end{align}
+式\eqref{eq:sequence-joseph-covariance}称为Joseph形式，更适合在有限精度计算中保持对称性和半正定性。这里要求$S$可逆，实际实现应解线性方程而非显式求逆。若$p=m=1,C=1$，则$K=P^-/(P^-+R)$：观测越噪，修正越小；状态预测越不确定，越相信新观测。在线性高斯且参数正确时，$r^{\mathsf T}S^{-1}r$服从自由度为$p$的卡方分布；用它设阈值仍需检查噪声、参数估计与重复告警假设，不能直接把名义尾概率当成事件级误报率。
+
+\paragraph{连续动力学怎样成为离散记忆。}
+考虑$\dot h(t)=A_c h(t)+B_c u(t)$、$y(t)=Ch(t)$，其中$h\in\R^m$、$u\in\R^q$，$A_c\in\R^{m\times m},B_c\in\R^{m\times q}$。假定每个长度为$\Delta$的采样区间内输入恒定，利用积分因子得到
+\begin{align}
+ h_t&=\bar A h_{t-1}+\bar B u_t,\\
+ \bar A&=\exp(\Delta A_c),\qquad
+ \bar B=\int_0^\Delta\exp(sA_c)B_c\,ds.
+\end{align}
+只有$A_c$可逆时，才可把积分写为$A_c^{-1}(\bar A-I)B_c$；积分形式始终有效。反复代入递推式得
+\begin{equation}
+ y_t=C\bar A^t h_0+\sum_{j=1}^t C\bar A^{t-j}\bar B u_j.
+\end{equation}
+因此固定线性状态模型既可按状态在线扫描，也可按卷积核$G_k=C\bar A^k\bar B$批量计算。若$A_c$各特征值实部为负，则$\bar A$的特征值模小于一，长期记忆稳定衰减，但非正规矩阵仍可能短期放大扰动。S4利用结构化参数高效表示这样的长核；输入依赖的选择性更新则不再对应同一个固定卷积核，需采用扫描计算。线性时间复杂度通常以状态维度固定为前提，不能忽略状态大小和实现常数。
+
+\paragraph{长序列的计算策略。}
+Transformer 的二次注意力使高频工业流难以直接处理。常见策略包括下采样、分块、局部注意力、稀疏注意力、线性注意力和层级编码器。下采样降低成本却可能删除短暂故障；局部注意力保留邻域细节却限制远距离依赖；层级模型通过低频状态连接长时间尺度。选择策略应由故障持续时间和提前量决定。
+
+\paragraph{教师强制与部署解码。}
+teacher forcing 下的交叉熵衡量“给定真实历史时的下一步预测”，并不等于自由运行时的轨迹质量。评估多步预测时应让模型使用自己的历史输出，记录误差随预测步长的增长。对连续值预测，还应区分递归策略中的误差累积和直接多输出策略中的共享表示误差。
+
+\paragraph{非平稳序列的分层验证。}
+若设备老化导致均值、方差或周期变化，随机切分会把未来状态混入训练。时间滚动验证可以模拟上线过程：用较早区间训练，在后续区间验证，再向前滚动。若存在新设备部署，还应增加设备留出维度。结果应按时间、设备、工况和传感器版本分层，以区分概念漂移和测量系统变化。
+
+\paragraph{异常分数的选择。}
+预测残差适合发现可预测模式的偏离，负对数似然还会考虑预测方差，隐状态距离适合表示空间中已有正常原型的偏离。三种分数的阈值含义不同：残差阈值依赖量纲，似然阈值依赖概率校准，距离阈值依赖表示几何。可以组合多个分数，但必须在验证集上固定组合规则，不能根据测试事件逐个调阈值。
+
+\paragraph{序列模型的资源消耗。}
+报告模型时应记录每步延迟、端到端窗口延迟、显存、参数量和吞吐。一个离线速度快的模型，如果等待完整窗口才能输出，可能不满足提前预警要求。流式 RNN 可以逐步更新状态，Transformer 则可能需要缓存和窗口重算。计算预算是序列建模问题的一部分，而非部署阶段才补充的细节。
+
+\paragraph{滚动预测的完整设置。}
+设传感器以一分钟为间隔采样，使用过去$T=120$步预测未来$H=30$步。样本构造应令输入窗口为$[t-T+1,t]$，标签窗口为$[t+1,t+H]$，并保证同一故障事件不会同时出现在训练和测试窗口。若窗口高度重叠，随机切分会使相邻片段泄漏到不同集合；更稳妥的做法是按时间块或设备划分，并在块之间留出间隔。
+
+评价时分别计算$h=1,5,15,30$的误差，观察模型是否只在短提前量有效。若采用递归预测，必须在每一步输入模型自己的预测；若采用直接多输出头，则应说明每个提前量是否共享参数。除 MAE 外，还应报告故障前提前量、告警持续时间和每台设备每天误报数，因为这些量直接决定维护团队的工作量。
+
+\paragraph{从预测到异常告警。}
+轨迹预测误差只有在真实观测到达后才能计算，不能用未来误差触发当前预警。设$\hat x_{t\mid t-h}$及$\hat\sigma_{t\mid t-h}$是在$t-h$时刻对$t$的预测和标准差。对一个传感器通道，时刻$t$可计算的标准化残差为
+\begin{equation}
+ s_t=\max_{1\leq h\leq H}\frac{|x_t-\hat x_{t\mid t-h}|}{\hat\sigma_{t\mid t-h}+\epsilon}.
+\end{equation}
+这个分数检测当前观测相对于历史预测的偏离，不等于未来故障概率。若要提前预警，还需验证偏离与后续故障的关系，或直接训练未来事件概率输出头。
+为了避免一个瞬时噪声触发告警，可以要求连续$m$个窗口超过阈值，或在事件级别合并相邻告警。阈值和$m$只能在验证数据上根据漏报成本、误报预算和最小提前量确定。测试集只用于一次性报告，不能在看到故障时间后反复调整规则。
+
+传感器掉线时，要先区分设备真的异常，还是根本没有可靠读数。直接填零可能在曲线上制造一次突变。可以用缺失掩码注明哪些值没测到；若沿用上次读数，还应限制最多沿用多久。长时间缺失应触发数据质量告警，并按预定规则暂停判断或转人工处理。这样才不会把通信故障误报成设备故障。
+
+\paragraph{在线部署检查表。}
+上线前至少应验证初始状态、窗口边界、时区和时间戳顺序；上线后监控输入缺失率、窗口延迟、预测分布、异常分数和告警确认结果。模型更新时保留旧版本作为影子模型，比较同一批输入上的分数变化。这样可以区分真实工况变化、数据管线故障和模型版本引入的行为改变。
+
+\paragraph{序列模型的基线与消融。}
+持久性预测$\hat x_{t+h}=x_t$是许多连续传感器任务的强基线；具有周期性的过程还应加入季节性复制和线性外推。若深度模型不能稳定超过这些基线，应先检查窗口构造、目标定义和数据泄漏，而不是立即增加层数。消融实验可以依次去掉时间特征、缺失掩码、注意力、残差或多步损失，以判断性能来自真正的结构还是额外的参数量。
+
+\paragraph{不规则采样与时间间隔。}
+许多工业事件并非严格等间隔。直接把事件编号当作时间步，会把十秒间隔和十分钟间隔视为同样的动态变化。可以显式输入$\Delta t$，或使用连续时间状态转移；但填补缺失时间点也会改变噪声结构。实验应分别比较规则重采样、时间间隔特征和事件驱动建模，并报告重采样造成的延迟和短时故障损失。
+
+\paragraph{多变量序列的因果边界。}
+多个传感器之间可能存在同步采集、控制回路和滞后影响。相关性注意力权重不能直接解释为因果关系，因为共同工况变量会同时改变多个通道。若预测目标是控制动作，还应区分可用的外生变量、动作之后才产生的变量和部署时不可获得的维修记录。特征可用性应按时间戳审计，并在数据字典中固定定义。
+
+\paragraph{概率预测的评价。}
+分位数预测使用 pinball loss，完整分布预测还可以使用连续排序概率得分。评价时既要检查尖锐性，也要检查校准：过宽的预测分布可能轻易覆盖真实值，却没有调度价值。对多步预测，应分别评估每个提前量，并观察区间是否随着预测跨度合理变宽。若预测分布出现不合理的收缩，通常意味着模型忽略了过程噪声或训练目标过度追求均值误差。
+
+\paragraph{本章小结。}
+窗口统计不足以保留演化顺序时，可以引入递归状态；状态压缩丢失关键历史时，可以改用注意力；历史访问成本过高时，再比较分块、卷积和结构化状态空间。选定表示后，还必须区分未来轨迹、故障概率和已到达观测的异常分数。梯度乘积说明长记忆为何难以训练，高斯条件化说明新观测为何应按不确定性加权，分位数风险与误差递推则说明多步输出不能只用一步均方误差评价。这些推导共同指向一个原则：表示能访问的信息、训练所优化的风险和上线时真正可计算的量必须一致。
+
+振动曲线可以提示设备发生了变化，但通常不能指出表面裂纹在哪里。下一章转向图像，用卷积、区域匹配和像素分割寻找缺陷位置。数据仍需独立测试，也仍要检查预测时能否取得；不过标签将变为图像类别、检测框或像素标记，因此不能拿定位成绩直接代替未来故障预测的成绩。

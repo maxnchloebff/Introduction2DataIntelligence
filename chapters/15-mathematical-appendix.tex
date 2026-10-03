@@ -1,0 +1,67 @@
+\chapter{数学与模型速查}
+
+\section{概率分布}
+伯努利分布的概率质量函数为$p(y)=\pi^y(1-\pi)^{1-y}$。多项分布用于$K$类标签，$p(y=k)=\pi_k$且$\sum_k\pi_k=1$。高斯分布写作
+\begin{equation}
+ p(x)=\frac{1}{(2\pi)^{d/2}|\Sigma|^{1/2}}
+ \exp\left[-\frac12(x-\mu)^{\mathsf T}\Sigma^{-1}(x-\mu)\right].
+\end{equation}
+高斯的对数密度是二次型，因此最小二乘和高斯噪声假设之间存在直接联系。
+
+\section{常见期望与方差}
+对随机变量$X$和常数$a,b$，有$\mathbb{E}[aX+b]=a\mathbb{E}[X]+b$，$\Var(aX+b)=a^2\Var(X)$。协方差矩阵
+\begin{equation}
+ \Sigma=\mathbb{E}[(X-\mu)(X-\mu)^{\mathsf T}]
+\end{equation}
+必须是半正定矩阵。主成分分析正是在寻找使投影方差最大的正交方向。
+
+\section{矩阵微积分}
+若$f(x)=a^{\mathsf T}x$，则$\nabla_xf=a$；若$f(x)=\frac12x^{\mathsf T}Ax$且$A$对称，则$\nabla_xf=Ax$。线性层$y=Wx+b$的反向传播为
+\begin{equation}
+ \frac{\partial L}{\partial W}=\frac{\partial L}{\partial y}x^{\mathsf T},
+ \qquad
+ \frac{\partial L}{\partial x}=W^{\mathsf T}\frac{\partial L}{\partial y}.
+\end{equation}
+这两个公式解释了深度网络中梯度如何穿过矩阵乘法。
+
+\section{常用损失函数}
+回归中的均方误差为$\frac1n\sum_i(\hat y_i-y_i)^2$，对大误差敏感；平均绝对误差为$\frac1n\sum_i|\hat y_i-y_i|$，对异常值更稳健。二分类交叉熵为
+\begin{equation}
+ -\frac1n\sum_i[y_i\log p_i+(1-y_i)\log(1-p_i)].
+\end{equation}
+多分类交叉熵是标签分布与预测分布之间的负对数似然。对比学习常用 InfoNCE，分母中的负样本数量和采样策略会改变任务难度。
+
+\section{正则化与先验}
+岭回归加入$\lambda\|w\|_2^2$，对应高斯先验下的 MAP 估计；Lasso 加入$\lambda\|w\|_1$，倾向于产生稀疏解。Dropout 可理解为训练时随机屏蔽子网络，Batch Normalization 通过批统计量改善优化尺度。它们都可能改变模型的有效容量，但不应简单等同为同一种正则化。
+
+\section{优化器}
+梯度下降为$\theta_{t+1}=\theta_t-\eta g_t$。带动量的更新累积历史梯度；Adam 同时维护一阶和二阶移动平均，并使用偏差修正。学习率是最重要的优化超参数之一，比较模型时应说明学习率搜索范围，而不是只给出最终值。
+
+\section{评价指标}
+二分类的准确率是$(TP+TN)/(TP+TN+FP+FN)$，精确率为$TP/(TP+FP)$，召回率为$TP/(TP+FN)$。类别极不平衡时，准确率可能具有误导性。AUROC 衡量排序能力，AUPRC 更关注正类稀少时的识别能力。回归应同时报告 MAE、RMSE 和分位数误差；概率预测还应报告校准误差。
+
+\section{深度模型的参数量}
+全连接层从$d_{in}$到$d_{out}$的参数量为$d_{in}d_{out}+d_{out}$。二维卷积层参数量为$k_hk_wc_{in}c_{out}+c_{out}$，与输入空间尺寸无关。多头注意力的主要投影参数量约为$4d^2$，序列长度为$T$时注意力矩阵的计算和存储通常呈$O(T^2)$增长。
+
+\section{符号表}
+\begin{table}[htbp]
+\centering
+\caption{本书常用符号}
+\begin{tabular}{ll}
+\toprule
+符号 & 含义\\
+\midrule
+$x,y$ & 输入与标签\\
+$\theta$ & 模型参数\\
+$\mathcal{D}$ & 数据集\\
+$p_\theta$ & 参数为$\theta$的概率模型\\
+$q_\phi$ & 近似后验或推断模型\\
+$\eta$ & 学习率\\
+$\tau$ & 对比学习或概率模型中的温度参数\\
+$T$ & 时间步数或任务数量，依上下文而定\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{推导检查清单}
+阅读一个新目标函数时，依次检查它优化的是期望、经验平均还是上界；检查每一项的量纲和符号；检查随机变量的条件关系；检查训练时使用的信息是否在推理时可得。很多看似复杂的模型，经过这四步后可以还原为似然、正则、匹配或约束的组合。

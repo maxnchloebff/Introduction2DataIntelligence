@@ -1,0 +1,194 @@
+\chapter{线性模型与经典学习算法}
+
+\begin{quote}\small
+\textit{本章摘要。}本章从最容易解释的线性模型出发，依次讨论回归、正则化、分类、树模型、集成和无监督学习。主线不是罗列算法，而是观察模型复杂度如何改变几何表示、偏差方差和决策阈值。最后将这些选择放回轴承状态分类案例，为后文的深度模型提供可比较的基线。
+\end{quote}
+
+上一章把学习写成风险最小化，本章要追问这个表达究竟怎样产生一个能计算的模型。线性模型尤其适合作为第一步：每个参数、每次收缩和每条分类边界都能直接从目标函数中解释。这里的“线性”指对参数线性，输入仍可包含平方项、频带能量或其他人工特征，并不意味着原始物理过程必须线性。
+
+先从温度、振动等特征的加权和开始，看看权重怎样求出、读数相关时又会出什么问题。如果简单的加权和无法区分故障，再考虑树和集成模型；没有标签时，则用聚类探索记录中有哪些相似模式。每换一种方法，都要在相同的数据划分和评价规则下比较。这样才能知道，增加的复杂度究竟解决了什么困难。
+
+\section{线性回归与正则化：从几何到稳定性}
+岭回归与 Lasso 分别通过二次惩罚和绝对值惩罚控制估计的不稳定性\cite{hoerl1970ridge,tibshirani1996lasso}。本节从这两个目标函数解释收缩与稀疏，而不是把正则化仅当作调参选项。
+\paragraph{线性回归的矩阵推导。}
+给定设计矩阵$X\in\mathbb{R}^{n\times d}$和标签向量$\bm{y}$，线性回归最小化
+\begin{equation}
+ J(\bm{w})=\frac12\|X\bm{w}-\bm{y}\|_2^2.\label{eq:linear-least-squares}
+\end{equation}
+令式\eqref{eq:linear-least-squares}的梯度为零可得正规方程
+\begin{equation}
+ X^{\mathsf T}X\hat{\bm{w}}=X^{\mathsf T}\bm{y}.\label{eq:linear-normal-equation}
+\end{equation}
+由式\eqref{eq:linear-normal-equation}，当$X^{\mathsf T}X$可逆时，$\hat{\bm{w}}=(X^{\mathsf T}X)^{-1}X^{\mathsf T}\bm{y}$。实际计算通常使用 QR 分解或奇异值分解，避免显式求逆带来的数值不稳定。
+
+\paragraph{展开目标、检查唯一性。}
+$X$的第$i$行是$\bm x_i^{\mathsf T}$，$\bm y\in\R^n$，$\bm w\in\R^d$。将平方展开，
+\begin{align}
+ J(\bm w)&=\tfrac12\bm w^{\mathsf T}X^{\mathsf T}X\bm w
+ -\bm w^{\mathsf T}X^{\mathsf T}\bm y+\tfrac12\bm y^{\mathsf T}\bm y,\\
+ \nabla J(\bm w)&=X^{\mathsf T}X\bm w-X^{\mathsf T}\bm y,\qquad
+ \nabla^2J=X^{\mathsf T}X.
+\end{align}
+因为$\bm v^{\mathsf T}X^{\mathsf T}X\bm v=\|X\bm v\|_2^2\geq0$，目标凸，正规方程的任意解都是全局最小值。唯一性要求$X$列满秩，即不存在非零$\bm v$满足$X\bm v=0$；特别地，$d>n$时无正则化参数不可能唯一。若秩不足，$X^+\bm y$给出最小欧氏范数解，所有解可写为$X^+\bm y+\bm v$，其中$X\bm v=0$。参数可能不同，但训练点的拟合向量相同。
+
+这里使用误差平方和而非平均值；若改用$\|Xw-y\|^2/(2n)$，相同数值的$\lambda$代表不同惩罚强度，后续闭式解中的$\lambda I$要相应变成$n\lambda I$。比较实现时必须先核对这个约定。
+
+\paragraph{岭回归、Lasso 与 Elastic Net。}
+岭回归加入二次惩罚：
+\begin{equation}
+ \hat{\bm{w}}_{ridge}=\argmin_{\bm{w}}\frac12\|X\bm{w}-\bm{y}\|_2^2+\frac{\lambda}{2}\|\bm{w}\|_2^2,\label{eq:linear-ridge-objective}
+\end{equation}
+式\eqref{eq:linear-ridge-objective}的解为$(X^{\mathsf T}X+\lambda I)^{-1}X^{\mathsf T}\bm{y}$。Lasso 使用$L_1$惩罚$\lambda\|\bm{w}\|_1$，会产生稀疏解，适用于希望进行特征筛选的场景。正则化牺牲一部分无偏性换取更低方差，超参数必须在验证集上选择。
+
+\paragraph{岭回归如何抑制小奇异值方向。}
+令$X$的秩为$r$，其紧致奇异值分解为
+\begin{equation}
+ X=USV^{\mathsf T},\qquad S=\diag(s_1,\ldots,s_r),\qquad s_j>0.
+\end{equation}
+正规方程加入$\lambda w$后变为
+\begin{equation}
+ (X^{\mathsf T}X+\lambda I)w=X^{\mathsf T}y.
+\end{equation}
+当$\lambda>0$时矩阵正定，且
+\begin{equation}
+ \hat w_\lambda=\sum_{j=1}^r\frac{s_j}{s_j^2+\lambda}\bm v_j\bm u_j^{\mathsf T}y.
+\end{equation}
+最小二乘对应系数$1/s_j$，会放大小奇异值方向的标签扰动；岭回归把它乘以$s_j^2/(s_j^2+\lambda)$，因而在这些方向收缩最强。若$y=Xw_*+\varepsilon$、$\E\varepsilon=0$、$\operatorname{Cov}(\varepsilon)=\sigma^2I_n$且$X$固定，则
+\begin{align}
+ \E[\bm v_j^{\mathsf T}\hat w_\lambda]
+ &=\frac{s_j^2}{s_j^2+\lambda}\bm v_j^{\mathsf T}w_*,\\
+ \Var(\bm v_j^{\mathsf T}\hat w_\lambda)
+ &=\frac{\sigma^2s_j^2}{(s_j^2+\lambda)^2}.
+\end{align}
+这明确显示偏差增加而方差减少，不保证每个真实参数与每个$\lambda$下总误差都降低。截距通常单独估计而不惩罚；此处公式默认无截距或数据已经按训练均值中心化。
+
+\paragraph{Lasso的零系数从哪里来。}
+固定其他坐标，记第$j$列为$\bm x_j$，部分残差为$\bm r_j=y-\sum_{k\ne j}\bm x_kw_k$。关于$w_j$的目标去掉常数后为
+\begin{equation}
+ \tfrac12a_jw_j^2-c_jw_j+\lambda|w_j|,\qquad
+ a_j=\|\bm x_j\|_2^2,\quad c_j=\bm x_j^{\mathsf T}\bm r_j.
+\end{equation}
+对非零列$a_j>0$，正半轴驻点为$(c_j-\lambda)/a_j$，负半轴驻点为$(c_j+\lambda)/a_j$；在零点，$\partial|w_j|=[-1,1]$，故零点最优当且仅当$|c_j|\leq\lambda$。合并得到软阈值更新
+\begin{equation}
+ w_j\leftarrow\frac{\operatorname{sign}(c_j)(|c_j|-\lambda)_+}{a_j},
+ \qquad (u)_+=\max(u,0).
+\end{equation}
+零不是四舍五入的结果，而是一整个相关性区间的精确最优解。Elastic Net只需把分子阈值改成$\lambda\alpha$，分母改成$a_j+\lambda(1-\alpha)$；其二次项也帮助缓解共线性下解的不稳定。
+
+\section{分类模型与代价敏感决策}
+\paragraph{逻辑回归。}
+二分类逻辑回归令
+\begin{equation}
+ p(y=1\mid\bm{x})=\sigma(\bm{w}^{\mathsf T}\bm{x}+b),
+ \qquad \sigma(a)=\frac{1}{1+e^{-a}}.
+\end{equation}
+对数几率满足$\log[p/(1-p)]=\bm{w}^{\mathsf T}\bm{x}+b$，所以其他特征不变时，第$j$个特征增加一个单位使几率$p/(1-p)$乘以$e^{w_j}$。这不是风险概率之比，也不是因果效应。
+
+上面说明了如何把输入转换为类别概率，但参数还没有确定。接下来需要回答：怎样利用已知标签，让模型给出的概率更符合训练数据？例如，对一个确实发生故障的样本，模型应当给实际标签分配较大的概率。从标签的伯努利分布出发，就可以把这个要求写成训练目标。
+
+\paragraph{从伯努利似然到梯度和Hessian。}
+把截距并入$\tilde x_i=(\bm x_i^{\mathsf T},1)^{\mathsf T}\in\R^{d+1}$，参数记为$\beta=(\bm w^{\mathsf T},b)^{\mathsf T}$。令$a_i=\tilde x_i^{\mathsf T}\beta$、$p_i=\sigma(a_i)$。由于$Y_i\in\{0,1\}$，模型给实际标签$y_i$分配的概率为$p_i^{y_i}(1-p_i)^{1-y_i}$：当$y_i=1$时取$p_i$，当$y_i=0$时取$1-p_i$。假设给定输入和参数后，各样本的标签条件独立，整个训练集的似然就是这些概率的乘积$\prod_i p_i^{y_i}(1-p_i)^{1-y_i}$。
+
+最大化这个乘积，等价于最小化它的负对数。对数把乘积变成求和，因而每个样本对应一个损失。式\eqref{eq:linear-logistic-cross-entropy}中的两项负对数之和就是\emph{二分类交叉熵}；代入 sigmoid 后，可将它改写为关于线性得分$a_i$的表达式，并进一步求导：
+\begin{align}
+ \ell_i&=-y_i\log\sigma(a_i)-(1-y_i)\log(1-\sigma(a_i))
+ =\log(1+e^{a_i})-y_ia_i,\label{eq:linear-logistic-cross-entropy}\\
+ \frac{\partial\ell_i}{\partial a_i}&=p_i-y_i,\qquad
+ \frac{\partial^2\ell_i}{\partial a_i^2}=p_i(1-p_i)\geq0.
+\end{align}
+令$\tilde X\in\R^{n\times(d+1)}$为增广矩阵，平均损失的梯度与Hessian为
+\begin{equation}
+ \nabla J=\frac1n\tilde X^{\mathsf T}(p-y),\qquad
+ \nabla^2J=\frac1n\tilde X^{\mathsf T}D\tilde X,
+ \quad D=\diag(p_i(1-p_i)).
+\end{equation}
+这里$J=\frac1n\sum_i\ell_i$。对任意参数方向$v\in\R^{d+1}$，有
+\begin{equation}
+ v^{\mathsf T}\nabla^2J\,v
+ =\frac1n\sum_i p_i(1-p_i)(\tilde x_i^{\mathsf T}v)^2\geq0.\label{eq:linear-logistic-hessian-psd}
+\end{equation}
+式\eqref{eq:linear-logistic-hessian-psd}表明 Hessian 半正定，说明这个训练目标关于逻辑回归参数$\beta$是凸的：若存在局部极小点，它也是全局极小点。这个结论依赖于得分$a_i$是参数的线性函数，不能直接推广到以神经网络输出概率的交叉熵目标。但凸性不保证有限最优参数存在：完全线性可分的数据可通过无限放大分类方向使损失趋近零。正则化、共线性检查和停止条件仍然必要。计算$\log(1+e^a)$时应使用稳定形式$\max(a,0)+\log(1+e^{-|a|})$。
+
+\section{非线性模型与无监督结构}
+支持向量机通过间隔约束构造判别边界，随机森林通过随机化的树集成降低相关性，梯度提升则逐步拟合损失的下降方向\cite{cortes1995svm,breiman2001forest,friedman2001boosting}。这些机制的差别决定其适用数据规模、非线性表达与调参方式。
+\paragraph{支持向量机：从距离到间隔目标。}
+对标签$y_i\in\{-1,1\}$，线性边界$w^{\mathsf T}x+b=0$到点$x_i$的距离是$|w^{\mathsf T}x_i+b|/\|w\|_2$。同时缩放$w,b$不改变边界，故在线性可分时可选尺度使最近点满足$y_i(w^{\mathsf T}x_i+b)=1$。最大化几何间隔$1/\|w\|_2$就等价于
+\begin{equation}
+ \min_{w,b}\tfrac12\|w\|_2^2,\qquad
+ y_i(w^{\mathsf T}x_i+b)\geq1.
+\end{equation}
+不可分时引入$\xi_i\geq0$，约束改为$y_i(w^{\mathsf T}x_i+b)\geq1-\xi_i$并惩罚$C\sum_i\xi_i$。固定$w,b$时最小可行松弛量是$\xi_i=(1-y_i(w^{\mathsf T}x_i+b))_+$，因此得到正则化合页损失。$C>0$越大越强调训练违约代价；若使用平均损失，参数尺度也要调整。核方法把内积换成正半定核$k(x,x')=\langle\phi(x),\phi(x')\rangle$以构造非线性边界，但分类分数并不直接是概率。
+
+\paragraph{树模型与集成。}
+决策树通过一系列特征阈值划分输入空间。分类树常用基尼不纯度
+\begin{equation}
+ G(S)=1-\sum_{k=1}^{K}\hat p_k^2
+\end{equation}
+选择划分。随机森林通过自助采样和随机特征子集降低方差；梯度提升树则逐步拟合当前残差。树模型适合表格数据和混合类型特征，通常不需要大规模标准化，但在高维原始图像和长序列上不如专门的深度结构。
+
+\paragraph{不纯度下降、平均方差与提升方向。}
+在节点$S$中按经验类别比例独立抽两次标签，二者不同的概率为$1-\sum_k\hat p_k^2$，这给出基尼不纯度的解释。候选划分$S=S_L\cup S_R$的收益必须按子节点大小加权：
+\begin{equation}
+ \Delta G=G(S)-\frac{|S_L|}{|S|}G(S_L)-\frac{|S_R|}{|S|}G(S_R).
+\end{equation}
+不加权会把一个极小纯节点误当成与大节点等量重要。贪心选择最大收益只优化当前一步，不保证整棵树全局最优。
+
+对固定输入，若$M$棵树的数值预测各有方差$\sigma_T^2$且两两相关系数均为$\rho$，则平均预测满足
+\begin{equation}
+ \Var\left(\frac1M\sum_{m=1}^MT_m\right)
+ =\frac{M\sigma_T^2+M(M-1)\rho\sigma_T^2}{M^2}
+ =\rho\sigma_T^2+\frac{1-\rho}{M}\sigma_T^2.\label{eq:linear-forest-variance}
+\end{equation}
+式\eqref{eq:linear-forest-variance}解释了为什么降低树之间的相关性与增加树数同样重要；它针对数值平均，不能直接当成多数投票分类错误率公式。
+
+梯度提升则令当前预测为$F_{m-1}(x_i)$，拟合伪残差$r_i=-\partial\ell(y_i,F)/\partial F$，用树$h_m$逼近$r_i$，再更新$F_m=F_{m-1}+\nu\gamma_mh_m$，其中$\gamma_m$可由一维线搜索确定，$0<\nu\leq1$控制步幅。平方损失下$r_i=y_i-F_{m-1}(x_i)$才是普通残差；伯努利交叉熵以对数几率为$F$时$r_i=y_i-\sigma(F_{m-1}(x_i))$。因此“拟合残差”是负梯度思想在特定损失下的形式。
+
+\paragraph{无监督学习。}
+K-means最小化类内平方距离
+\begin{equation}
+ \min_{\{\bm{\mu}_k\}}\sum_{i=1}^{n}\min_k\|\bm{x}_i-\bm{\mu}_k\|_2^2.
+\end{equation}
+交替执行“分配最近中心”和“更新中心”会使目标不增，但一般只能得到依赖初始化的稳定划分，不能保证全局最优。PCA寻找最大投影方差方向，等价于求协方差矩阵的主特征向量。工业上聚类可用于设备分群，PCA可用于降噪和可视化，但聚类编号不天然具有物理语义。
+
+\paragraph{K-means的两个更新为什么不增损失。}
+引入指派变量$z_i\in\{1,\ldots,K\}$，目标成为$Q(z,\mu)=\sum_i\|x_i-\mu_{z_i}\|_2^2$。固定中心时，每个$z_i$独立取最近中心就最小化对应项；固定指派时，设$S_k=\{i:z_i=k\}$且非空，则
+\begin{equation}
+ \nabla_{\mu_k}\sum_{i\in S_k}\|x_i-\mu_k\|_2^2
+ =2|S_k|\mu_k-2\sum_{i\in S_k}x_i=0,
+ \qquad \mu_k=\frac1{|S_k|}\sum_{i\in S_k}x_i.
+\end{equation}
+于是$Q(z^{t+1},\mu^{t+1})\leq Q(z^{t+1},\mu^t)\leq Q(z^t,\mu^t)$，目标非负，故目标值收敛。要保证指派稳定，还需处理距离相同的平局；空簇则必须有明确的重新初始化策略。目标值收敛本身不证明找到了最佳聚类，多次初始化是必要的经验检查。
+
+\paragraph{线性回归的几何解释。}
+预测向量$X\bm w$属于设计矩阵的列空间。最小二乘解把标签向量$\bm y$正交投影到这个子空间，因此残差满足$X^{\mathsf T}(X\hat{\bm w}-\bm y)=0$。若特征高度相关，列空间本身可能稳定，但参数坐标并不稳定；这解释了为什么预测误差可以很小而单个回归系数却随数据扰动显著变化。
+
+加入截距时，通常应先对特征中心化，或在设计矩阵中显式加入全一列。对量纲差异很大的变量，标准化不会改变线性预测空间，但会改变正则化对各坐标的相对作用。岭回归的惩罚若直接施加在未标准化变量上，为产生相同幅度的预测变化，数值尺度大的特征只需较小系数，因而往往受到较弱的有效惩罚；这会使单位选择不当地影响模型偏好。
+
+\paragraph{正则化路径与稀疏性。}
+岭回归把共线特征的系数一起收缩，通常不会精确变为零；Lasso 的$L_1$球有尖角，最优点更容易落在坐标轴上，因此产生稀疏解。Elastic Net 将二者结合：
+\begin{equation}
+ \min_w\frac12\|Xw-y\|_2^2+\lambda\left(\alpha\|w\|_1+\frac{1-\alpha}{2}\|w\|_2^2\right).
+\end{equation}
+当传感器特征成组相关时，Elastic Net 往往比纯 Lasso 更稳定。稀疏性仍应被解释为建模选择，不应自动等同于因果重要性。
+
+\paragraph{逻辑回归与代价敏感决策。}
+逻辑回归的线性函数给出对数几率，但真正的停机或告警动作还需要阈值。设误报成本为$c_{FP}$、漏报成本为$c_{FN}$，预测概率为$p$，选择告警的期望成本为$c_{FP}(1-p)$，不告警的期望成本为$c_{FN}p$。因此阈值应由成本比决定，而不是固定为$0.5$。类别权重、阈值调整和概率校准分别作用于训练目标、决策规则和输出解释。
+
+\paragraph{树模型的划分偏差。}
+决策树递归寻找能最大减少不纯度的划分。若类别极不平衡，基尼下降可能主要反映多数类；若连续变量取值很多，候选切点越多也越容易产生偶然收益。限制最大深度、叶节点最小样本数和使用验证集剪枝，都是控制树复杂度的方式。
+
+随机森林通过样本和特征随机化降低树之间的相关性；梯度提升则让后续树拟合前一阶段的残差。前者通常稳健，后者在表格任务上常有很强的精度，但对学习率、树深和迭代次数敏感。工业建模中应同时报告特征重要性稳定性，避免把一次随机森林的排序当作机制结论。
+
+\paragraph{聚类的验证。}
+K-means 隐含近似球形、相近尺度和均匀方差的簇假设。高斯混合模型允许不同协方差结构，并给出软归属概率；层次聚类则提供多尺度树状结构。聚类质量可以使用轮廓系数，但真正的工业价值还要看簇是否对应不同工况、维护策略或数据质量。若簇只反映传感器量程差异，聚类结果就不应被解释为设备类型。
+
+\section{工业基线：从可解释模型到复杂模型}
+假设从每个振动窗口提取均方根、峭度、峰值因子和频带能量。先用逻辑回归检查这些特征的简单组合是否足够，再用随机森林学习非线性划分，最后尝试让一维卷积网络直接读取波形。如果复杂模型只在随机切分时提高成绩，在留出整台设备测试时反而下降，它可能依赖了设备特有的信号。仅凭这一现象还不能断定原因，需要继续检查工况差异、标签质量和设备特征。
+轴承分类实验应先固定设备级切分，再依次建立多数类基线、逻辑回归、随机森林和一维卷积模型。每一步记录输入信息、参数量、训练时间、推理延迟和错误类型。这里的端到端模型指直接从输入学习预测结果、联合优化特征提取与预测部分的模型。若这类模型的提升只出现在同一设备随机切分，而在新设备上消失，应回到特征和划分规则检查，而不是继续增加网络深度。
+
+\paragraph{本章小结。}
+经典模型的价值不只在于计算便宜，更在于它们把数据、假设和决策之间的关系暴露出来。线性模型提供可解释基线，树模型处理非线性表格关系，聚类和 PCA 探索无标签结构；复杂模型应在这些基线无法表达任务结构时再被引入。
+
+本章推导还表明，不同算法的“最优”并非同一含义：最小二乘是在列空间内最优，正则化是在指定偏好下折中，逻辑回归凸性不保证参数有限，K-means的交替下降也不保证全局最优。解释算法时应同时说明优化对象、成立条件和未解决的部分。
+
+模型已经能算，下一章还要检查喂给它的数据怎样得到。正规方程和梯度都写对了，若输入混入未来记录，或把同一设备的相邻窗口分到训练和测试两边，成绩仍可能过于乐观。因此先写清取哪个时段、哪些设备留作测试，以及预测之后怎样告警，再开始训练。
