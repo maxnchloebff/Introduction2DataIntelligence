@@ -1,4 +1,4 @@
-\chapter{流形学习}
+﻿\chapter{流形学习}
 \label{chap:manifold}
 \begin{quote}\small
 \textit{本章摘要。}流形学习假定高维观测由少量连续因素控制。本章从线性子空间基线出发，分别推导保持测地距离、局部重构和图平滑的算法，再讨论 t-distributed Stochastic Neighbor Embedding (t-SNE)、Uniform Manifold Approximation and Projection (UMAP) 与流形正则化。低维图形只是一种表示，不能直接证明故障类别可分。
@@ -9,6 +9,10 @@
 把许多传感器读数画到平面上，可以有不同的画法。PCA 尽量保留线性重构能力，Isometric Mapping (Isomap) 保留沿邻域图行走的距离，Locally Linear Embedding (LLE) 保留局部重构关系，谱方法关注图上的平滑变化；概率可视化更重视谁与谁相邻，并不保证远处两点的距离准确。本章分别推导这些目标。看图时还要问：聚在一起的是同一种故障，还是同一种转速？换一台设备后，这种表示是否仍有助于识别故障？
 
 \section{几何假设与邻域构造}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[x=0.9cm,y=0.75cm]
@@ -226,6 +230,18 @@ UMAP 用局部距离尺度构造模糊邻域图，再优化低维边连接强度
 
 对多工况振动数据，先统一转速、负载和通道量纲，再比较 PCA、Isomap 和图嵌入。随后改变邻居数、距离定义和随机种子，检查哪些邻近关系始终稳定。图构造和参数选择只能用训练侧数据；新设备上线时，要按事先写好的映射规则处理，不能把测试样本重新放回图中。除了邻域保持、重构误差或谱诊断，还要报告未见设备的故障召回、误报和计算成本。二维图看起来更整齐，却让异常召回下降时，它就不适合这个业务。
 
+流形学习的算法目标和可视化边界可用下列官方材料复习；前者覆盖算法比较，后者帮助理解低维图形的解释限制。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Manifold learning}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读 Isomap、LLE、Spectral Embedding、t-SNE 与 MDS 小节，帮助逐一对应本章的测地距离、局部重构、图平滑和概率邻域。\href{https://scikit-learn.org/stable/modules/manifold.html}{在线阅读}。
+\item \textbf{Basic UMAP Parameters}；作者/平台：UMAP-learn；英文；官方教程。比较 n\_neighbors、min\_dist、n\_components 和 metric 的示例，理解局部与全局结构、嵌入紧密度和距离选择。\href{https://umap-learn.readthedocs.io/en/latest/parameters.html}{在线阅读}。
+\item \textbf{【机器学习】数据降维（Dimensionality Reduction）}；知乎；中文解说。先建立PCA基线，再比较邻域和距离保持目标；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/342129669}{在线阅读}。
+\item \textbf{降维算法总结（超全！附代码）}；CSDN；中文博客。核对降维的目标与新样本映射；二维可视化不能直接证明类别结构或部署泛化；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/SeafyLiang/article/details/118701759}{在线阅读}。
+\item \textbf{(选修)To Learn More - Unsupervised Learning - Neighbor Embedding}；李宏毅；bilibili；中文课程。选看第93集，对照本章邻域嵌入与可视化限制。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=93}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 本章从同一批高维观测得到了不同的数学对象：PCA 的正交投影、核 PCA 的特征空间内积、Isomap 的测地距离、LLE 的局部重构权重、谱方法的图平滑与扩散距离，以及 t-SNE、UMAP 的邻域强度。每一种谱分解或梯度优化都服务于一个明确目标；它们不能因最终都画出二维点图而互相替代。
 

@@ -1,4 +1,4 @@
-\chapter{机器学习究竟在学习什么}
+﻿\chapter{机器学习究竟在学习什么}
 
 \begin{quote}\small
 \textit{本章摘要。}本章定义样本、任务、模型、损失和风险，说明不同损失对应不同预测对象，并讨论正则化、可识别性及预测到决策的边界。
@@ -10,6 +10,10 @@
 同一段振动记录，可以用来判断轴承是否故障，也可以用来预测下一时刻的振幅。这两个问题需要不同的标签，算错后的后果也不同。本章先把这些差别写清楚，再说明模型中的参数如何通过损失函数学出来。随后讨论正则化、可识别性和部署反馈：为什么训练数据上看起来很好，换一台设备却可能失效？后文介绍各种模型时，都要回到输入、目标和错误代价这几件事。
 
 \section{学习对象：数据、任务与模型}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \paragraph{从数据到任务。}
 数据（data）是对对象、过程或环境的观测记录。一个样本（sample）是一次相对完整的观测，通常记为$\bm{x}\in\R^d$；监督学习中还伴随标签$y$，于是样本写为$(\bm{x},y)$。这里的“样本”不是数据表的一行这么简单：一次设备运行周期、一张图像、一个句子或一段传感器窗口都可以成为样本，关键在于它是否对应一个明确的学习单位。
 
@@ -134,6 +138,18 @@ $\partial$是允许不可微凸函数的次梯度集合。互补条件表示：�
 \paragraph{模型选择的四个约束。}
 模型选择至少同时受四类约束：数据规模与标注质量、任务中的依赖结构、训练与推理资源、错误的业务代价。复杂模型并不自动优于简单模型；它只有在表示了简单模型无法表示的结构时才有必要。后文讨论的序列、视觉和语言模型，实际上是在不同结构约束下对这四个问题的回答。
 
+本章的风险、损失与正则化可结合下面两份非论文材料复习：前者帮助把目标写成可计算的学习问题，后者把模型训练与泛化评价连接起来。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Linear Models}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读 Ordinary Least Squares、Ridge、Lasso 与 Logistic Regression 小节，配合本章的线性预测、正则化和分类损失理解参数约束与风险最小化。\href{https://scikit-learn.org/stable/modules/linear\_model.html}{在线阅读}。
+\item \textbf{Cross-validation: evaluating estimator performance}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读训练/验证/测试划分、交叉验证和数据泄漏说明，帮助把本章的经验风险、部署风险与可复现实验边界落实为流程。\href{https://scikit-learn.org/stable/modules/cross\_validation.html}{在线阅读}。
+\item \textbf{损失函数（Loss Function）}；知乎；中文解说。比较平方损失与交叉熵，核对本章预测对象；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/261059231}{在线阅读}。
+\item \textbf{损失函数（lossfunction）的全面介绍（简单易懂版）}；CSDN；中文博客。阅读 L1、MSE 与交叉熵说明，比较不同误差的代价；已核对公开页面标题与索引摘要。\href{https://blog.csdn.net/weixin\_57643648/article/details/122704657}{在线阅读}。
+\item \textbf{2021 - 类神经网络训练不起来怎么办(四) 损失函数 (Loss) 也可能有影响}；李宏毅；bilibili；中文课程。选看第22集，对照本章损失与学习目标。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=22}{观看分集}。
+\end{itemize}
+\endgroup
 \section{本章小结：学习的对象由规则决定}
 机器学习并非从数据中提取一个与任务无关的唯一答案。输入和标签定义可观察的问题，模型族限定可表达的答案，损失确定希望估计的统计对象，正则化与优化再从有限数据允许的解中作出选择。总体风险与经验风险、预测与解释、概率与动作必须分开，才能判断一个低损失结果到底说明了什么。
 

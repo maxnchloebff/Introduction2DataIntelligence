@@ -1,4 +1,4 @@
-\chapter{联邦学习}
+﻿\chapter{联邦学习}
 \begin{quote}\small
 \textit{本章摘要。}本章把“数据不能集中”作为约束，重新审视训练、通信、隐私和公平性。先定义联邦优化与非独立同分布，再分析 Federated Averaging (FedAvg)、本地更新、差分隐私、安全聚合和个性化方法，最后回到系统延迟、参与方差异和攻击面。联邦学习解决的是数据协作边界，不会自动解决统计偏差。
 \end{quote}
@@ -6,6 +6,10 @@
 
 假设几家工厂不能交换原始记录，但希望一起改进故障模型。首先要决定大工厂是否因样本多而占更大权重，再看各厂独立训练多步以后，更新为什么可能朝不同方向走。通信中断、设备掉线和更新中泄露的信息，也都要考虑。本章从加权经验风险推导 FedAvg，再解释近端项、控制变量和个性化方法。评价时既看平均成绩，也看表现最差的工厂，并记录通信成本和隐私预算。原始数据留在本地，并不自动保证上传的更新安全。
 \section{问题定义}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.8cm and 1.0cm]
@@ -237,6 +241,18 @@ SCAFFOLD 为服务器和客户端维护控制变量，用于估计并校正本�
 
 隐私验收不能只检查原始文件是否离开工厂。应分别测试更新反演、成员推断、恶意客户端投毒和服务器串谋；对差分隐私记录每轮裁剪、噪声和累计$(\epsilon,\delta)$，对安全聚合记录阈值、掉线恢复和密钥失效行为。若加入噪声后小工厂的少数故障召回显著下降，平均准确率可能仍然稳定，但系统已经产生了不公平的风险分配，因此最差客户端和少数类指标必须进入停止条件。
 
+联邦优化、客户端漂移和隐私边界可结合下面两份非论文材料学习：一份是框架实践，另一份是隐私机制说明。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Quickstart PyTorch}；作者/平台：Flower；英文；官方框架教程。阅读 ClientApp、ServerApp、FedAvg 与本地模拟流程，观察数据分区、轮次聚合和客户端评估。\href{https://flower.ai/docs/framework/tutorial-quickstart-pytorch.html}{在线阅读}。
+\item \textbf{TensorFlow Privacy：隐私保护指南}；作者/平台：TensorFlow；中文；官方指南。阅读 DP-SGD 的介绍，理解限制单个样本影响的动机及其与联邦学习用户级隐私的区别；隐私预算还需结合本章的会计分析。\href{https://tensorflow.google.cn/responsible\_ai/privacy}{在线阅读}。
+\item \textbf{详解联邦学习Federated Learning}；知乎；中文解说。画出本地训练与服务器聚合流程，检查客户端权重；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/79284686}{在线阅读}。
+\item \textbf{终于有人把联邦学习讲明白了}；CSDN；中文博客。对照非独立同分布和通信约束；数据不出本地不等于已经满足隐私保证；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/hzbooks/article/details/118097998}{在线阅读}。
+\item \textbf{《联邦学习技术介绍、应用和FATE开源框架》第1课！了解一下AI的新风口？}；上传者：FedAI联邦学习；bilibili；中文课程。对照本章联邦协作流程与应用边界，区分框架实现和隐私保证；旧课程的软件接口以当前官方文档为准。2026年10月4日公开元数据播放12,741次，高于本次异步联邦教程候选的6,701次；已核对公开课程简介、标题和计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1JE411p72s/}{观看视频}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 联邦学习要求数据留在各工厂，但这不会替我们决定应该最小化哪一种风险。所有工厂各做一步、再按样本聚合时，FedAvg 可还原集中式梯度；每个工厂本地走多步后，各自停在不同位置，聚合方向就会产生偏差。FedProx 用近端项限制本地模型离开全局模型太远，SCAFFOLD 用控制变量修正客户端漂移，个性化方法则允许不同工厂保留不同的预测头。它们解决的不是同一个优化问题，不能只按通信轮数或平均准确率排顺序。
 

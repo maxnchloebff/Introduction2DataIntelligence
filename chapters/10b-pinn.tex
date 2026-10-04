@@ -1,4 +1,4 @@
-\chapter{物理信息神经网络：从稀疏观测重建风场}
+﻿\chapter{物理信息神经网络：从稀疏观测重建风场}
 \label{chap:pinn}
 \begin{quote}\small
 \textit{本章摘要。}物理信息神经网络（Physics-Informed Neural Network，PINN）将观测误差、微分方程残差和初边值条件共同用于训练。本章以风电场稀疏多普勒激光雷达测量为例，推导从视线速度到连续风场的逆问题，解释自动微分、尺度处理、约束方式和主要变体，并讨论可辨识性、湍流闭合与独立验证。
@@ -11,6 +11,10 @@
 
 \section{从函数拟合到受约束逆问题}
 \label{sec:pinn-formulation}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 普通监督回归通过成对样本约束函数值。PINN 进一步用已知方程约束函数在未观测位置的变化方式。设空间坐标为$\mathbf{x}\in\Omega$、时间为$t\in[0,T]$，待求状态为$\mathbf{q}(\mathbf{x},t)$，控制方程、边界条件和初始条件分别写为
 \begin{align}
  \mathcal N_{\boldsymbol\eta}[\mathbf q](\mathbf x,t)&=\mathbf0,\qquad (\mathbf x,t)\in\Omega\times(0,T],\\
@@ -279,5 +283,17 @@ Adam 可用于早期优化，随后可在固定配点和确定性目标上尝试
 
 部署时可以联合监测径向创新、分区域物理残差、观测几何和不确定区间。观测大面积缺失、波束几何退化或边界状态超出训练范围时，应扩大不确定性说明并限制输出用途，必要时回退到已验证的测风或同化流程。自动微分能够精确计算网络导数，但不能保证网络代表了真实大气。
 
+物理信息神经网络需要同时理解自动微分和方程残差，下面两份材料分别覆盖这两个互补方面。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Burgers equation}；作者/平台：DeepXDE；英文；官方代码教程。阅读 Problem setup 和 Implementation，以 Burgers 方程核对时空域、初边值条件、Jacobian/Hessian、PDE 残差与训练损失的代码对应。\href{https://deepxde.readthedocs.io/en/latest/demos/pinn\_forward/burgers.html}{在线阅读}。
+\item \textbf{The Fundamentals of Autograd}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看 requires\_grad、Jacobian、higher-order derivatives 与 autograd，帮助实现本章的 PDE 导数、残差构造和梯度检查。\href{https://docs.pytorch.org/tutorials/beginner/introyt/autogradyt\_tutorial.html}{在线阅读}。
+\item \textbf{PINN——加入物理约束的神经网络}；知乎；中文解说。分别写出观测损失、方程残差与边界条件，对照本章约束设计；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/544561165}{在线阅读}。
+\item \textbf{物理信息神经网络（PINN）: 将物理知识融合到深度学习中}；CSDN；中文博客。核对自动微分与无量纲化；低方程残差不保证逆问题可辨识；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/qq\_28247201/article/details/136072595}{在线阅读}。
+\item \textbf{物理信息神经网络 PINNs 融合物理定律与深度学习}；上传者：北游知；bilibili；中文技术讲解。按公开简介对照本章自动微分、方程残差、边界条件与参数反演；先核对损失各项，再检查尺度和可辨识性，不把教程中的前景描述当作精度保证。2026年10月4日公开元数据播放6,523次；在直接相关的中文解说候选中优先选用，未采用播放更高的机翻转载课程。已核对公开简介、标题和计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1WfQsB6EKn/}{观看视频}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 PINN 用方程帮助推断稀疏观测之间的风场。使用前要写清雷达的测量方式和重建尺度，再设置方程残差、初值和边界条件。多放一些配点，只是多检查一些位置是否符合方程；增加独立视角的观测，才可能带来新的测量信息。报告结果时应同时说明测量精度、方程与现场的偏差、数据能否确定所求风场，以及计算开销。一张平滑的图和较低的训练损失还不够。

@@ -1,4 +1,4 @@
-\chapter{多模态模型}
+﻿\chapter{多模态模型}
 \begin{quote}\small
 \textit{本章摘要。}本章研究图像、文本、传感器和时间序列如何在同一任务中协同。先区分共同表示空间与真正的信息融合，再讨论对比学习、跨模态注意力、模态缺失和时间对齐，最后建立面向工业数据的评价方式。关键问题不是模态越多越好，而是每个模态是否提供了可对齐、可验证的互补信息。
 \end{quote}
@@ -7,6 +7,10 @@
 把照片和振动记录放在一起之前，先核对设备编号和采集时间。若照片来自维修后，振动来自维修前，直接配成一对就可能教错模型。共同嵌入空间用于寻找匹配记录，跨模态注意力让一种输入读取另一种输入，质量门控则在照片模糊或传感器失真时调整使用程度。这几种办法需要不同的训练数据。后文都用相机与振动联合诊断来说明：多出来的信息帮了什么忙，少一路输入时又该怎么办。
 
 \section{不同模态的共同空间}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.75cm and 0.9cm]
@@ -150,5 +154,17 @@ LLaVA 类 & 视觉 token 投影到语言上下文 & 问答和多轮解释自然 
 \paragraph{多模态评价。}
 多模态系统应分别报告单模态基线、简单拼接、注意力融合和缺失模态结果。分类任务可检查跨模态遮挡后的鲁棒性；定位任务需要区域级准确率；生成任务需要事实一致性和证据覆盖率。最重要的消融不是把某一层删掉，而是回答“哪一种模态信息在什么工况下真正改变了决策”。
 
+多模态学习的共同嵌入、对比目标与跨模态注意力可用下列材料互补复习，分别侧重表示学习和工程实现。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Contrastive Representation Learning}；作者/平台：Lilian Weng；英文；技术教程。重点看 contrastive loss、InfoNCE、temperature 和 negative sampling，帮助理解本章的 CLIP 双塔、对齐空间与模态缺失风险。\href{https://lilianweng.github.io/posts/2021-05-31-contrastive/}{在线阅读}。
+\item \textbf{Natural language image search with a Dual Encoder}；作者/平台：Khalid Salama / Keras；英文；代码教程。阅读双编码器、投影层、对比目标和文本检索图像部分，理解共享表示空间。示例使用 Keras 2，运行前需核对依赖版本。\href{https://keras.io/examples/vision/nl\_image\_search/}{在线阅读}。
+\item \textbf{多模态学习综述 (MultiModal Learning)}；知乎；中文技术解说。区分表示、对齐与融合，核对不同模态的数据配对方式；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/582878508}{在线阅读}。
+\item \textbf{一文彻底搞懂多模态：模态表示、多模态融合、跨模态对齐（索引标题节选）}；CSDN；中文博客。比较早期与后期融合，另行检查缺失模态下的评价；标题与主题据必应索引，原页受限，完整标题未核实。\href{https://blog.csdn.net/star\_nwe/article/details/143416379}{在线阅读}。
+\item \textbf{多模态 之 CLIP ｜ 1、CLIP 网络结构精讲}；上传者：Enzo\_Mi；bilibili；中文技术讲解。对照本章图文对齐，画出图像编码器、文本编码器和相似度计算，比较对比学习与融合；不要把图文匹配直接等同于生成能力。2026年10月4日公开元数据播放4,447次；优先选择结构讲解而非成品展示。视频落地页显示验证码，未绕过；标题、上传者和计数据官方公开元数据核对，未逐帧观看。\href{https://www.bilibili.com/video/BV1BeZFBGEhe/}{观看视频}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 图像、振动和文字的采集频率不同，质量也不同，还可能缺失。联合使用时，要说明每一路怎样编码、按什么时间和设备配对、相互矛盾时听谁的，以及少一路输入时还能完成什么任务。最后在独立数据上分别测试完整输入和缺失输入，才能判断复杂的融合结构是否真的有帮助。

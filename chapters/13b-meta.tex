@@ -1,4 +1,4 @@
-\chapter{元学习}
+﻿\chapter{元学习}
 \label{chap:meta}
 \begin{quote}\small
 \textit{本章摘要。}元学习在一组任务上优化学习过程，使新任务能够用少量数据完成适应。本章从支持集、查询集和任务分布出发，分别推导度量方法、梯度初始化与学习优化器，再比较一阶近似、隐式梯度和概率变体。少样本只是常见应用，任务级泛化才是评价核心。
@@ -9,6 +9,10 @@
 可以把每台新设备的适应过程看成一次练习：支持集是允许先看的少量已标注记录，查询集用来检查适应后的效果。训练时重复经历多个任务，才学出共享的元参数。下面先介绍不更新全部参数的度量方法，再用链式法则推导 Model-Agnostic Meta-Learning (MAML) 及其近似，最后讨论学习优化器和概率适应。作为全书最后一章，这里仍要回到最初的检查：测试任务是否真的没见过，查询标签是否参与了适应？这些条件不成立，少样本高分也不能说明模型会适应新任务。
 
 \section{任务分布与双层目标}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.75cm and 0.7cm]
@@ -252,6 +256,18 @@ iMAML 在任务内目标加入到初始化的近端项\cite{rajeswaran2019imaml}
 
 评价以任务而非高度相关的窗口为统计单元，报告平均性能、任务间区间、失败任务比例、适应前后增益、校准与延迟。改变支持集大小、标签噪声和目标设备类型，检查元训练任务分布之外的退化。不能用同一设备随机切片上的高准确率证明快速跨设备适应。
 
+元学习的任务划分、度量方法和快速适应可结合下面两份课程资源复习，分别覆盖任务级目标与少样本训练实现。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{CS330: Deep Multi-Task and Meta Learning}；作者/平台：Stanford University；英文；课程讲义、作业与项目。重点阅读 meta-learning、few-shot learning、MAML、metric learning 和 task distribution，帮助理解支持集/查询集与双层目标。\href{https://web.stanford.edu/class/cs330/}{课程主页}。
+\item \textbf{higher documentation: Top-Level Functions}；作者/平台：Facebook Research / higher；英文；API 教程文档。阅读 innerloop\_ctx 的 copy\_initial\_weights 与 track\_higher\_grads 参数，核对可微内循环、快速权重及 MAML 的梯度路径。\href{https://higher.readthedocs.io/en/latest/toplevel.html}{在线阅读}。
+\item \textbf{一文入门元学习（Meta-Learning）（附代码）}；知乎；中文解说。明确任务划分、支持集与查询集，比较度量学习和梯度初始化；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/136975128}{在线阅读}。
+\item \textbf{通俗讲解元学习（Meta-Learning）}；CSDN；中文博客。对照内外层更新，检查测试任务是否泄漏到元训练；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/bruce\_\_ray/article/details/131144371}{在线阅读}。
+\item \textbf{第十五节 2021 - 元学习 Meta Learning (一) - 元学习和机器学习一样也是三個步骤}；李宏毅；bilibili；中文课程。选看第135集，对照本章跨任务训练与快速适应。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=135}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 元学习把一个预测器的训练问题改写为适应过程的训练问题。度量方法通过支持集重建比较规则，原型网络把平方距离下的类均值作为任务状态；MAML 通过内外循环链式法则学习初始化，一阶方法以梯度近似换取计算效率，隐式方法则以驻点方程替代轨迹展开。学习优化器和记忆方法把适应放在更新规则或显式状态中，概率方法进一步保留少量证据下的多种任务解释。这些路线的共同目标都是适应后的查询风险，而不是仅把支持样本拟合得更好。
 

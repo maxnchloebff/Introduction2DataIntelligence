@@ -1,4 +1,4 @@
-\chapter{优化算法与神经网络训练}
+﻿\chapter{优化算法与神经网络训练}
 
 \begin{quote}\small
 \textit{本章摘要。}本章解释神经网络如何把损失函数转化为参数更新。叙事依次经过计算图、梯度优化、曲率与尺度、初始化和正则化，最后回到训练故障诊断。这样读者能够把“训练不稳定”定位到目标函数、梯度传播、数值尺度或数据管线，而不是把问题简单归咎于模型容量。
@@ -9,6 +9,10 @@
 选好优化器以后，训练仍可能出问题。例如，同一批误差取总和还是取平均，会改变梯度的大小；初始权重过大，信号经过多层后可能迅速放大。下面先推导一步更新什么时候能降低损失，再分析随机梯度、曲率、初始化和归一化怎样影响训练。章末把这些推导用于排查故障，帮助读者决定该查数据、梯度还是学习率。
 
 \section{目标、梯度与参数更新}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 随机近似奠定了含噪更新的基础，Adam 则将梯度一阶与二阶矩估计用于自适应更新\cite{robbins1951stochastic,kingma2015adam}。算法的更新规则、初始化和偏差校正应一起理解，不能只比较默认学习率。
 \paragraph{从目标函数到计算图。}
 训练目标常写成$J(\theta)=\frac1n\sum_i\ell_i(\theta)$。神经网络把它实现为多层复合函数，计算过程可以表示为有向无环图。前向传播计算预测值，反向传播按照拓扑逆序计算每个节点对损失的梯度。自动微分系统保存中间激活，因此显存消耗和计算图结构密切相关。
@@ -190,6 +194,18 @@ Dropout在训练时随机屏蔽部分激活，相当于在许多子网络上进�
 \section{可复现训练设置}
 一次训练应固定数据版本、切分文件、模型配置、随机种子、优化器版本和停止规则。保存最佳验证检查点时要记录选择指标和选择时刻，否则重新加载的模型可能不是报告结果对应的模型。多次运行应报告均值和波动，尤其是小数据和元学习任务。
 
+反向传播、自动微分和训练循环可借助下面两份官方教程对照实现，阅读时把代码步骤对应回本章的梯度推导。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Introduction to PyTorch}；作者/平台：PyTorch 官方教程；英文；视频与教程。依次阅读 Tensors、Autograd、Building Models 和 Training Models，帮助理解计算图、反向传播、优化器与复现设置。\href{https://docs.pytorch.org/tutorials/beginner/introyt/introyt1\_tutorial.html}{在线阅读}。
+\item \textbf{Training a Classifier}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看数据加载、损失、优化器、训练/测试循环和保存模型，帮助把本章的 SGD、批训练和验证步骤落到可运行流程。\href{https://docs.pytorch.org/tutorials/beginner/blitz/cifar10\_tutorial.html}{在线阅读}。
+\item \textbf{深度学习 | 反向传播详解}；知乎；中文解说。沿计算图手算链式法则，再核对自动微分；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/115571464}{在线阅读}。
+\item \textbf{“反向传播算法”过程及公式推导（索引标题节选）}；CSDN；中文博客。阅读三层网络的前向与反向图示，区分梯度计算和参数更新；已读取公开页面的定义与图示说明，完整标题未核实。\href{https://blog.csdn.net/ft\_sunshine/article/details/90221691}{在线阅读}。
+\item \textbf{(选修)To Learn More - 反向传播(Backpropagation)}；李宏毅；bilibili；中文课程。选看第14集，对照本章计算图与链式法则。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=14}{观看分集}。
+\end{itemize}
+\endgroup
 \section{本章小结}
 优化是把目标函数转化为参数更新的过程，训练工程则负责让这个过程数值稳定、可诊断、可复现。学习率、批量、初始化、归一化和精度共同决定优化轨迹；它们不能被当作互相独立的旋钮。
 

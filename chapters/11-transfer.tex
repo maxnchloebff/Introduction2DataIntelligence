@@ -1,4 +1,4 @@
-\chapter{迁移学习}
+﻿\chapter{迁移学习}
 \label{chap:transfer}
 \begin{quote}\small
 \textit{本章摘要。}迁移学习利用已有数据、表示或参数降低目标任务的学习成本。本章先区分任务变化与分布偏移，再从风险重加权、表示对齐和参数适配推导主要算法，最后讨论测试时适配与负迁移。选择依据是哪些假设仍成立，而不是预训练模型有多大。
@@ -11,6 +11,10 @@
 假设两台相机的图像颜色变得更接近了，还要检查裂纹和正常纹理是否仍能区分。对齐指标下降，只说明某种分布差异缩小，不能直接说明目标设备上的故障更容易识别。章末再考虑连续更新：用新设备数据改好模型后，旧设备上的故障还能不能识别？下一章的持续学习就从这里开始。
 
 \section{源域知识与目标域风险}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.75cm and 0.7cm]
@@ -162,6 +166,18 @@ Adapter 在冻结骨干中插入低维瓶颈。对输入表示$h$，一个残差
 
 换了新相机后，先查清楚是亮度、镜头和噪声变了，还是“什么算缺陷”的定义变了。前一类问题可以先试归一化适配和线性探测；后一类问题需要重新核对标签。若规则允许，可以用新相机的无标签图像做适配，但测试标签只能留到最终评价。报告各类缺陷召回、未知输入拒识、校准、训练成本和发生负迁移的设备组。若还要长期维护旧相机能力，就需要下一章的持续学习机制。
 
+迁移学习中的分布偏移、对齐与参数适配可用以下材料复习，分别覆盖数据变换和模型复用。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Transfer Learning}；作者/平台：Stanford CS231n；英文；课程笔记。阅读固定特征提取、微调以及数据规模和领域相似性对应的选择建议，理解迁移范围与过拟合风险。\href{https://cs231n.github.io/transfer-learning/}{在线阅读}。
+\item \textbf{Transfer Learning for Computer Vision Tutorial}；作者/平台：Sasank Chilamkurthy / PyTorch；英文；代码教程。比较微调整个网络与冻结特征提取器两种训练流程，核对训练参数范围和验证步骤；该教程不是 LoRA 实现。\href{https://docs.pytorch.org/tutorials/beginner/transfer\_learning\_tutorial.html}{在线阅读}。
+\item \textbf{什么是迁移学习（Transfer Learning）？}；知乎；中文解说。比较冻结特征与微调，记录可训练参数；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/1899236885408256815}{在线阅读}。
+\item \textbf{迁移学习(Transfer Learning)概述及代码实现}；CSDN；中文博客。对照源域与目标域划分，用无迁移基线识别负迁移；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/weixin\_49272172/article/details/115791703}{在线阅读}。
+\item \textbf{第十一节 2021 - 概述领域自适应 (Domain Adaptation)}；李宏毅；bilibili；中文课程。选看第110集，对照本章分布差异与适应条件。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=110}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 迁移学习依次回答源知识是否相关、分布差异能否被估计、哪些参数应更新。重加权改变样本贡献，成立前提是正确的偏移假设和支撑覆盖；分布对齐改变表示，却必须额外保护类别语义；微调和低秩适配改变预测器，其容量与标签预算应匹配。测试时熵下降进一步说明，没有标签的自洽改进可能只是错误自信。所有路线都需要目标域证据与无迁移基线，不能以对齐损失下降代替目标风险下降。
 

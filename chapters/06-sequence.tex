@@ -1,12 +1,16 @@
-\chapter{序列建模模型}
+﻿\chapter{序列建模模型}
 \begin{quote}\small
-\textit{本章摘要。}本章围绕一个核心问题展开：如何把历史信息压缩成对未来有用的状态。先介绍 Recurrent Neural Network (RNN)、Long Short-Term Memory (LSTM) 和 Gated Recurrent Unit (GRU) 的递归记忆，再解释注意力与 Transformer 如何改变信息访问路径，随后讨论状态空间滤波、长序列计算、多步预测和异常告警。模型比较最终要检查时间边界、提前量、非平稳性与资源消耗。
+\textit{本章摘要。}本章围绕一个核心问题展开：如何把历史信息压缩成对未来有用的状态。先介绍 Recurrent Neural Network (RNN)、Long Short-Term Memory (LSTM) 和 Gated Recurrent Unit (GRU) 的递归记忆，再解释注意力与 Transformer 如何改变信息访问路径，随后由状态空间滤波转入连续系统的离散化与 Mamba 的选择性记忆，讨论并行扫描、长序列计算、多步预测和异常告警。模型比较最终要检查时间边界、提前量、非平稳性与资源消耗。
 \end{quote}
 窗口统计量可以描述振动强度，却可能抹去冲击出现的顺序。本章由此研究如何表示截至$t$的历史信息。故障概率、剩余寿命和未来轨迹是三种不同输出，后文的分钟级轨迹预测用于说明多步误差，不能与二十四小时故障概率直接比较。递归状态、注意力和状态空间模型的取舍，取决于输出需要保留哪些历史证据。
 前两章已经区分参数化表示、函数先验和预测不确定性，本章进一步追问：当观测按时间到达时，哪些信息应随状态一起保留下来？一个温度均值相同的窗口，可能对应平稳运行，也可能对应持续升温后骤降；只把窗口当作无序样本，就丢掉了区分这两种过程的依据。因此，序列建模不是在回归器前多加一个时间下标，而是规定历史如何进入当前判断，以及新的观测怎样修正已有判断。
 
 读公式时，先看模型怎样保存历史。递归模型把过去压进一个状态，注意力可以回头读取历史记录，卷积和状态空间模型则按各自的结构传递信息。再看这个状态是否还带有协方差：一组确定数值和一个状态分布，能表达的不确定性不同。最后核对输出到底是什么。预测未来温度曲线、预测故障概率和给当前窗口打异常分数，需要不同的标签，也对应不同的维护动作。
 \section{序列与状态}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 图\ref{fig:sequence-recurrent-state}中，纵向箭头把当前输入写入状态，横向箭头将历史传到下一时刻，最终预测因而依赖状态保留下来的信息。
 \begin{figure}[htbp]
 \centering
@@ -171,7 +175,7 @@ GRU使用更新门和重置门
 
 Transformer 系列则把时间点或时间片看作 token。Informer 使用稀疏概率注意力和序列蒸馏，减少长序列的二次成本；Autoformer 先将序列分解为趋势和季节项，再用自相关机制寻找周期模式；FEDformer 在频域或低秩结构中进行全局建模；PatchTST 把连续时间片切成 patch，以更少 token 保留局部形状，并在规则采样的长预测任务中形成强基线。PatchTST 对缺失时间戳和事件驱动数据并不天然稳健，因此应显式加入时间间隔、缺失掩码和设备身份，而不能直接把图像 Vision Transformer (ViT) 的 patch 机制照搬到所有传感器流。
 
-当序列长度使注意力矩阵无法存储时，结构化状态空间模型提供了另一种计算路径。Structured State Space Sequence Model (S4) 将连续时间状态方程离散化并用结构化参数高效计算长卷积，试图同时获得长记忆和线性复杂度；选择性状态空间模型 Mamba 进一步让输入控制状态更新、遗忘和输出，使模型可以对不同事件选择不同的记忆时间尺度。它们适合超长振动流、日志流和在线扫描，但状态压缩也可能丢失需要精确回看的单次事件。比较 Transformer、TCN、S4 和 Mamba 时，应同时报告短暂冲击的召回、长周期趋势误差、流式延迟、显存和窗口外推能力。
+当序列长度使注意力矩阵无法存储时，结构化状态空间模型提供了另一种计算路径。Structured State Space Sequence Model (S4) 将连续时间状态方程离散化并用结构化参数高效计算长卷积，兼顾长记忆与高效计算；选择性状态空间模型 Mamba 进一步让输入控制状态更新、遗忘和输出，使模型可以对不同事件选择不同的记忆时间尺度。它们适合超长振动流、日志流和在线扫描，但状态压缩也可能丢失需要精确回看的单次事件。比较 Transformer、TCN、S4 和 Mamba 时，应同时报告短暂冲击的召回、长周期趋势误差、流式延迟、显存和窗口外推能力。
 
 \begin{table}[htbp]
 \centering
@@ -188,7 +192,7 @@ LSTM/GRU & 显式递归状态与门控 & 顺序计算，流式更新简单 & 不
 TCN & 因果空洞卷积与固定感受野 & 可并行训练，窗口外推有限 & 高频批处理、固定提前量预测 \\
 Transformer & 全局注意力与位置编码 & 长度平方级注意力，缓存可降低解码重复 & 长距离依赖、数据量较大、离线分析 \\
 PatchTST/Informer & patch 或稀疏注意力 & 减少 token，依赖规则采样假设 & 长窗口、多变量、规则传感器流 \\
-S4/Mamba & 结构化或选择性状态空间 & 线性扫描，适合超长流式输入 & 长振动流、日志流、低延迟连续监控 \\
+S4/Mamba & 结构化或选择性状态空间 & 结构化卷积或选择性扫描，支持流式更新 & 长振动流、日志流、低延迟连续监控 \\
 \hline
 \end{tabular}}
 \end{table}
@@ -265,18 +269,80 @@ S4/Mamba & 结构化或选择性状态空间 & 线性扫描，适合超长流式
 \end{align}
 式\eqref{eq:sequence-joseph-covariance}称为Joseph形式，更适合在有限精度计算中保持对称性和半正定性。这里要求$S$可逆，实际实现应解线性方程而非显式求逆。若$p=m=1,C=1$，则$K=P^-/(P^-+R)$：观测越噪，修正越小；状态预测越不确定，越相信新观测。在线性高斯且参数正确时，$r^{\mathsf T}S^{-1}r$服从自由度为$p$的卡方分布；用它设阈值仍需检查噪声、参数估计与重复告警假设，不能直接把名义尾概率当成事件级误报率。
 
+\subsection{从固定状态空间到 Mamba 的选择性记忆}
+\label{sec:sequence-mamba}
+前面的状态空间模型（State Space Model，SSM）用概率分布描述状态与观测，并通过卡尔曼滤波估计不确定性。本节沿用状态转移的语言，但把 SSM 用作可训练的确定性序列层：它输出表示而非状态后验，不自动携带协方差或预测区间。先说明固定线性系统为何能形成长记忆，再解释 Mamba 如何根据输入选择写入、保留和读取的信息。以下讨论原始 Mamba 的选择性 SSM 与模块结构，不把后续 Mamba-2 的算法细节混入其中。
+
 \paragraph{连续动力学怎样成为离散记忆。}
-考虑$\dot h(t)=A_c h(t)+B_c u(t)$、$y(t)=Ch(t)$，其中$h\in\R^m$、$u\in\R^q$，$A_c\in\R^{m\times m},B_c\in\R^{m\times q}$。假定每个长度为$\Delta$的采样区间内输入恒定，利用积分因子得到
+以$\tau$表示连续时间，$t$仍表示离散位置。设状态$h(\tau)\in\R^m$、输入$u(\tau)\in\R^q$、层输出$v(\tau)\in\R^r$，连续系统为
+\begin{equation}
+ \frac{d h(\tau)}{d\tau}=A_c h(\tau)+B_c u(\tau),\qquad
+ v(\tau)=Ch(\tau)+Du(\tau).
+ \label{eq:sequence-ssm-continuous}
+\end{equation}
+其中$A_c\in\R^{m\times m}$、$B_c\in\R^{m\times q}$、$C\in\R^{r\times m}$、$D\in\R^{r\times q}$均不随位置变化，$D$为输入到输出的直接通路。这里$u_t$是由观测$x_t$提取的输入特征，不限于前文滤波模型中的控制量；$v_t$是中间表示，不与任务标签$y_t$混用。式\eqref{eq:sequence-ssm-continuous}是线性时不变（Linear Time-Invariant，LTI）系统。
+
+在长度为$\Delta>0$的每个区间内保持输入不变，即零阶保持，积分因子法给出
 \begin{align}
- h_t&=\bar A h_{t-1}+\bar B u_t,\\
+ h_t&=\bar A h_{t-1}+\bar B u_t,\qquad v_t=Ch_t+Du_t,
+ \label{eq:sequence-ssm-discrete}\\
  \bar A&=\exp(\Delta A_c),\qquad
  \bar B=\int_0^\Delta\exp(sA_c)B_c\,ds.
+ \label{eq:sequence-ssm-zoh}
 \end{align}
-只有$A_c$可逆时，才可把积分写为$A_c^{-1}(\bar A-I)B_c$；积分形式始终有效。反复代入递推式得
+只有$A_c$可逆时，才可把式\eqref{eq:sequence-ssm-zoh}的积分写为$A_c^{-1}(\bar A-I)B_c$；积分形式始终有效。反复代入式\eqref{eq:sequence-ssm-discrete}可得
 \begin{equation}
- y_t=C\bar A^t h_0+\sum_{j=1}^t C\bar A^{t-j}\bar B u_j.
+ v_t=C\bar A^t h_0+\sum_{j=1}^t C\bar A^{t-j}\bar B u_j+Du_t.
+ \label{eq:sequence-ssm-convolution}
 \end{equation}
-因此固定线性状态模型既可按状态在线扫描，也可按卷积核$G_k=C\bar A^k\bar B$批量计算。若$A_c$各特征值实部为负，则$\bar A$的特征值模小于一，长期记忆稳定衰减，但非正规矩阵仍可能短期放大扰动。S4利用结构化参数高效表示这样的长核；输入依赖的选择性更新则不再对应同一个固定卷积核，需采用扫描计算。线性时间复杂度通常以状态维度固定为前提，不能忽略状态大小和实现常数。
+式\eqref{eq:sequence-ssm-convolution}表明，固定线性系统既可递推，也可使用只依赖时间差的卷积核$G_k=C\bar A^k\bar B$计算。S4通过结构化参数高效表示和计算长核；卷积实现的复杂度取决于具体算法，不能将其一概说成严格线性。若$A_c$的特征值实部为负，则$\bar A$的特征值模小于一，长期记忆衰减，但非正规矩阵仍可能短期放大扰动。固定核对同一时间差使用相同权重，不能仅因某次冲击内容重要就改变记忆规则，这正是选择性更新要解决的限制。
+
+\paragraph{输入依赖的步长、写入与读取。}
+为明确维度，先看一个标量输入通道$u_t\in\R$，其状态$h_t\in\R^m$。令$\xi_t\in\R^d$为当前位置经过因果局部处理后的特征，定义
+\begin{align}
+ \Delta_t&=\operatorname{softplus}(w_\Delta^{\mathsf T}\xi_t+b_\Delta)>0,
+ \label{eq:sequence-mamba-selection}\\
+ B_t&=W_B\xi_t\in\R^m,\qquad C_t=W_C\xi_t\in\R^m,\qquad
+ A_c=\diag(-\exp(a_1),\ldots,-\exp(a_m)).\nonumber
+\end{align}
+这里$w_\Delta\in\R^d$、$W_B,W_C\in\R^{m\times d}$以及$a_i$是训练得到、推理时共享的参数；$\operatorname{softplus}(s)=\log(1+e^s)$。式\eqref{eq:sequence-mamba-selection}是便于推导的单通道参数化，实际模块可用低秩投影产生各通道步长，并在通道间共享部分$B_t,C_t$。输入依赖的是$\Delta_t,B_t,C_t$，不是所有参数；尤其$A_c$和直接通路系数$D$不必随输入变化。
+
+逐步冻结这些系数，精确零阶保持对应
+\begin{align}
+ \bar A_t&=\exp(\Delta_t A_c),\qquad
+ \bar B_t^{\mathrm{ZOH}}=\int_0^{\Delta_t}\exp(sA_c)B_t\,ds,
+ \label{eq:sequence-mamba-zoh}\\
+ h_t&=\bar A_t h_{t-1}+\bar B_t u_t,\qquad
+ v_t=C_t^{\mathsf T}h_t+Du_t.
+ \label{eq:sequence-mamba-recurrence}
+\end{align}
+式\eqref{eq:sequence-mamba-recurrence}中的$\bar B_t$必须与所选离散化一致。原始 Mamba 的官方选择性扫描实现对输入项采用$\bar B_t=\Delta_t B_t$，同时保留$\bar A_t=\exp(\Delta_t A_c)$；它并非直接使用式\eqref{eq:sequence-mamba-zoh}的精确输入积分。两者在$\|\Delta_t A_c\|$较小时一阶相符，不能将简化输入项写成精确零阶保持的恒等式。
+
+对第$i$个状态分量，保留系数为$\exp(-\Delta_t\exp(a_i))$。较小的$\Delta_t$使旧状态较少衰减，较大的$\Delta_t$使更新更快；$B_t$控制写入方向和强度，$C_t$控制当前读出。步长因此是一种学习到的记忆时间尺度，不天然等于传感器的物理采样间隔。对于不规则采样，还需显式提供实际时间间隔或约束连续时间模型。选择也不是“自动丢弃噪声”的保证：是否保留短时冲击取决于训练目标与数据，必须通过事件级验证检查。
+
+尽管式\eqref{eq:sequence-mamba-recurrence}对给定系数下的旧状态仍是线性的，系数本身依赖输入，整个输入到输出映射已不是 LTI 系统。历史输入的权重同时依赖其后的选择，不能再用式\eqref{eq:sequence-ssm-convolution}中那个固定的时间差卷积核替代。
+
+\paragraph{为何能递推推理，也能并行训练。}
+记$F_t=\bar A_t$、$b_t=\bar B_t u_t$，每步状态更新都是仿射映射$h\mapsto F_t h+b_t$。定义按时间先后合并两个映射的运算
+\begin{equation}
+ (F_2,b_2)\star(F_1,b_1)
+   =(F_2F_1,\ F_2b_1+b_2).
+ \label{eq:sequence-mamba-scan}
+\end{equation}
+函数复合的结合性使式\eqref{eq:sequence-mamba-scan}满足结合律，单位元为$(I,0)$；它通常不满足交换律，不能打乱时间顺序。对前缀$(F_t,b_t)\star\cdots\star(F_1,b_1)$做并行扫描，即可得到所有$h_t$。由于选择参数由输入特征而非尚未求得的$h_{t-1}$生成，训练时可先并行计算各位置系数，再合并前缀；这与一般非线性 RNN 的顺序状态依赖不同。理想并行前缀算法具有$O(\log T)$深度，但总工作量仍随$T$增长；实际硬件上的分块、访存和同步决定实际延迟，不能据此宣称运行时间只随$\log T$增长。
+
+\paragraph{从选择性 SSM 到 Mamba 模块。}
+原始 Mamba 不只是一个状态递推式。输入先经线性投影分成内容分支与门控分支；内容分支经过短核因果深度卷积和 SiLU 激活，再进入选择性 SSM。扫描结果与另一分支的 SiLU 输出逐元素相乘，经输出投影后接入残差路径；堆叠模块配合归一化构成深层网络。因果卷积只读取当前及过去的位置，承担局部混合，SSM承担长历史压缩，通道投影混合不同传感器特征。流式部署必须同时维护 SSM 状态和短卷积缓存。输出还须接任务头，才能成为未来轨迹、故障概率或分位数预测；选择性状态本身不是概率置信度。
+
+\paragraph{与 Transformer 的计算和记忆取舍。}
+设层内通道数为$d$，每通道状态维度为$m$。对角转移下，选择性扫描核心的总工作量为$O(Tdm)$，流式状态占用为$O(dm)$，与已处理历史长度无关；固定短卷积核还需要与核宽有关的缓存。密集通道投影通常另需$O(Td^2)$工作，不能把整个模块的成本仅写成$O(T)$而省略宽度与状态大小。训练仍需存储或重算随序列长度增长的激活，硬件感知扫描通过融合、分块与重计算减少访存，不意味着训练显存为常数。
+
+相较之下，标准全局注意力的交互计算为$O(T^2d)$，自回归 KV 缓存随历史增长到$O(Td)$，每个新位置还需读取历史键和值。FlashAttention 等精确算法可避免显式存储完整注意力矩阵，但不消除全局交互的二次算术量。Mamba 在长流与受限缓存下有结构性优势，Transformer 则能按当前查询重新访问具体历史位置；压缩进有限状态的证据一旦丢失，Mamba 无法像注意力那样直接回读原记录。精确事件检索、短序列、小批量或缺少优化扫描内核时，不能预设 Mamba 更准确或更快；混合注意力与 SSM 也是可比较的选择。
+
+\paragraph{工业实例：保留冲击还是保留工况。}
+沿用轴承案例，可将因果振动片段特征、当前温度、转速、负载、缺失掩码与实际时间间隔组成$x_t$，经投影和局部卷积形成$\xi_t$。稳定工况中，一部分状态维度可学习较慢衰减以积累磨损趋势；负载切换时，选择机制可调整写入，避免把正常升温直接解释为退化；稀疏冲击是否进入长期记忆则由故障目标约束。这只是机制解释，不是已经观察到的实验结果，更不能把某个门值当作物理故障原因。
+
+在相同设备划分、时间边界、预测提前量和参数预算下，应比较 GRU、Transformer 与 Mamba，并消融输入依赖的$\Delta_t,B_t,C_t$，检查收益究竟来自选择机制还是局部卷积与额外容量。除轨迹误差外，报告短冲击召回、事件级误报、流式延迟和峰值显存。每台设备独立维护状态；跨设备拼接、长缺失后的恢复和模型更新必须按预定规则重置或预热，训练时也要模拟这些边界。这样，式\eqref{eq:sequence-mamba-recurrence}中的长记忆才与上线时真正可用的历史一致。
 
 \paragraph{长序列的计算策略。}
 Transformer 的二次注意力使高频工业流难以直接处理。常见策略包括下采样、分块、局部注意力、稀疏注意力、线性注意力和层级编码器。下采样降低成本却可能删除短暂故障；局部注意力保留邻域细节却限制远距离依赖；层级模型通过低频状态连接长时间尺度。选择策略应由故障持续时间和提前量决定。
@@ -323,7 +389,19 @@ teacher forcing 下的交叉熵衡量“给定真实历史时的下一步预测�
 \paragraph{概率预测的评价。}
 分位数预测使用 pinball loss，完整分布预测还可以使用连续排序概率得分。评价时既要检查尖锐性，也要检查校准：过宽的预测分布可能轻易覆盖真实值，却没有调度价值。对多步预测，应分别评估每个提前量，并观察区间是否随着预测跨度合理变宽。若预测分布出现不合理的收缩，通常意味着模型忽略了过程噪声或训练目标过度追求均值误差。
 
+以下非论文材料覆盖递归状态、Transformer 与 SSM/Mamba：课程提供整体框架，图解解释信息流，官方教程和项目文档用于核对实现。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{CS224N: Natural Language Processing with Deep Learning}；作者/平台：Stanford University；英文；课程讲义、作业与视频。重点看 self-attention、Transformers 和 evaluation，帮助理解本章注意力、位置编码与评价边界；课程内容随学年更新。\href{https://web.stanford.edu/class/cs224n/}{课程主页}。
+\item \textbf{NLP From Scratch: Classifying Names with a Character-Level RNN}；作者/平台：Sean Robertson / PyTorch；英文；代码教程。阅读字符编码、循环网络、训练与混淆矩阵部分，观察隐藏状态如何逐字符更新以及如何完成序列分类。\href{https://docs.pytorch.org/tutorials/intermediate/char\_rnn\_classification\_tutorial.html}{在线阅读}。
+\item \textbf{The Illustrated Transformer}；作者/平台：Jay Alammar / 作者博客；英文；图解教程。对照本章查询、键、值、多头注意力和位置编码，沿编码器与解码器的信息流理解 Transformer；注意区分解码器因果遮罩与编码器的双向访问。\href{https://jalammar.github.io/illustrated-transformer/}{在线阅读}。
+\item \textbf{A Visual Guide to Mamba and State Space Models}；作者/平台：Maarten Grootendorst / 作者博客；英文；图解教程。配合第\ref{sec:sequence-mamba}节，从连续与离散 SSM、递推与卷积读到输入依赖选择和扫描；并行扫描依赖结合律而非交换律，时间顺序不能改变。\href{https://www.maartengrootendorst.com/blog/mamba/}{在线阅读}。
+\item \textbf{Mamba}；作者/平台：state-spaces / GitHub 官方项目文档；英文；实现与使用说明，非论文阅读条目。重点看 Usage 下的 Selective SSM、Mamba Block，沿文档链接核对扫描接口与模块实现；区分原始 Mamba 与后续版本，部署前检查平台和加速内核要求。\href{https://github.com/state-spaces/mamba\#usage}{使用文档}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
-窗口统计不足以保留演化顺序时，可以引入递归状态；状态压缩丢失关键历史时，可以改用注意力；历史访问成本过高时，再比较分块、卷积和结构化状态空间。选定表示后，还必须区分未来轨迹、故障概率和已到达观测的异常分数。梯度乘积说明长记忆为何难以训练，高斯条件化说明新观测为何应按不确定性加权，分位数风险与误差递推则说明多步输出不能只用一步均方误差评价。这些推导共同指向一个原则：表示能访问的信息、训练所优化的风险和上线时真正可计算的量必须一致。
+窗口统计不足以保留演化顺序时，可以引入递归状态；状态压缩丢失关键历史时，可以改用注意力；历史访问成本过高时，再比较分块、卷积和状态空间。Mamba 用输入依赖的步长、写入与读取改变固定 SSM 的记忆规则，并以结合性的仿射复合支持扫描；它降低长流缓存需求，却不能消除有限状态的信息损失。选定表示后，还必须区分未来轨迹、故障概率和已到达观测的异常分数。梯度乘积说明长记忆为何难以训练，高斯条件化说明新观测为何应按不确定性加权，分位数风险与误差递推则说明多步输出不能只用一步均方误差评价。这些推导共同指向一个原则：表示能访问的信息、训练所优化的风险和上线时真正可计算的量必须一致。
 
 振动曲线可以提示设备发生了变化，但通常不能指出表面裂纹在哪里。下一章转向图像，用卷积、区域匹配和像素分割寻找缺陷位置。数据仍需独立测试，也仍要检查预测时能否取得；不过标签将变为图像类别、检测框或像素标记，因此不能拿定位成绩直接代替未来故障预测的成绩。

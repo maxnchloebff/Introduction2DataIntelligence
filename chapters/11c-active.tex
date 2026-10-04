@@ -1,4 +1,4 @@
-\chapter{主动学习}
+﻿\chapter{主动学习}
 \label{chap:active}
 \begin{quote}\small
 \textit{本章摘要。}主动学习在有限标注预算下选择最有价值的查询。本章从候选池与标注者的交互规则出发，比较不确定性、委员会分歧、预期模型变化和批量多样性，再讨论成本、噪声与流式查询。核心不是找到最难的样本，而是使下一次标注改善部署风险。
@@ -11,6 +11,10 @@
 获取函数给记录排出的次序，只是在估计先标哪一条可能更有帮助。它的分数再高，也要通过实际标注和重新训练来检验。比较方法时应给它们相同的总预算，并计入专家核对、返工和等待时间，再看哪一种更快减少漏报与误报。如果记录分散在不能交换原始数据的工厂中，还需要安排各处怎样共同训练，这就是下一章联邦学习的问题。
 
 \section{查询规则与标注预算}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.7cm and 0.75cm]
@@ -169,6 +173,18 @@ BADGE 将不确定性与多样性放到最后一层的梯度表示中\cite{ash20
 
 比较随机、分层随机、不确定性和一种多样性方法，绘制真实测试召回随累计标注成本的曲线。重复不同种子集与查询随机种子，同时报告获取耗时、训练耗时、少数故障覆盖和失败查询比例。主动学习只有在同等总成本下提高真实风险表现时才有价值；节省标签却需要无法承受的反复重训，并非完整收益。
 
+主动学习的获取函数、批量多样性和预算评价可用以下材料复习，分别对应算法直觉和工程实验。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Active Learning}；作者/平台：Small-Text；英文；官方教程。阅读 Components 和池式主动学习流程，理解初始化、查询策略、人工标注与停止准则如何组成迭代过程。\href{https://small-text.readthedocs.io/en/latest/active\_learning.html}{在线阅读}。
+\item \textbf{Validation curves: plotting scores to evaluate models}；作者/平台：scikit-learn Developers；英文；官方示例文档。重点看训练集大小、验证曲线和重复评估，帮助把本章的累计标注预算、风险曲线与独立测试集评价落到实验设计。\href{https://scikit-learn.org/stable/modules/learning\_curve.html}{在线阅读}。
+\item \textbf{通俗易懂讲AI--主动学习}；知乎；中文解说。沿查询、标注与更新循环理解预算分配；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/676122996}{在线阅读}。
+\item \textbf{用大白话讲主动学习（Active Learning）}；CSDN；中文博客。比较不确定性和样本多样性，评价必须使用独立测试集；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/qq\_51323826/article/details/144357831}{在线阅读}。
+\item \textbf{主动学习(Active Learning，AL)的步骤、代码流程讲解及实战}；上传者：来包番茄沙司；bilibili；中文技术讲解。对照本章查询策略、不确定性度量与标注循环，检查每轮预算；评价仍使用独立测试集，不以查询样本上的准确率作为停止依据。2026年10月4日公开元数据播放14,386次，高于本次另一直接相关入门候选的1,501次；已核对公开流程简介、标题和计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1y34y147xN/}{观看视频}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 主动学习把标签视为需要分配的资源。不确定性寻找尚未确定的判断，BALD 进一步区分模型间分歧与单模型仍有的歧义，联合信息增益扣除批量冗余，预期风险方法直接考虑更新后的收益，而几何覆盖与梯度嵌入提供较便宜的批量代理。它们各自近似不同对象，因此获取得分不能跨方法直接解释为真实收益；大梯度不一定有益，高熵不一定可学，远距离也不一定对应新故障。
 

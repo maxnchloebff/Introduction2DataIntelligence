@@ -1,4 +1,4 @@
-\chapter{统计学习理论与模型选择}
+﻿\chapter{统计学习理论与模型选择}
 
 \begin{quote}\small
 \textit{本章摘要。}本章为模型比较提供统计学习视角。先说明假设空间和容量如何影响泛化界，再讨论结构风险、交叉验证、校准、不平衡数据和置信区间。最后把理论约束转成数据泄漏检查，使模型选择从“哪个分数最高”转向“哪个结论在何种不确定性下成立”。
@@ -9,6 +9,10 @@
 试过许多窗口长度以后再挑最高分，相当于又用数据作了一次选择。若仍用同一批数据报告最终成绩，就可能把偶然的好运当成稳定的提升。理论中的复杂度代价说明这种问题为什么会发生，交叉验证帮助安排有限样本的用途，校准和成本分析则帮助把分数变成告警规则。每一种方法都有适用条件，不能替代对新设备的独立检验。
 
 \section{假设空间与泛化约束}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[x=1cm,y=0.75cm]
@@ -179,6 +183,18 @@ ROC-AUC 衡量排序能力，PR-AUC 更关注少数正类下的精确率和召�
 \section{从统计量到决策}
 模型输出只是决策系统的一个中间量。若动作集合为$\mathcal A$，效用函数为$U(a,y)$，最优动作是期望效用最大的动作。不同部门可能面对不同成本，因此同一个概率模型可以配合不同阈值，而不必为每种成本重新训练。这个分离有助于审计模型能力和业务策略各自的变化。
 
+统计学习中的复杂度界与实验估计可结合官方交叉验证文档和重采样教程复习，注意它们服务于不同的不确定性来源。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Cross-validation: evaluating estimator performance}；作者/平台：scikit-learn Developers；英文；官方文档。阅读 K-fold、group、stratified 与 nested selection 的说明，帮助落实本章的模型选择和泛化估计。\href{https://scikit-learn.org/stable/modules/cross\_validation.html}{在线阅读}。
+\item \textbf{Prediction Intervals for Gradient Boosting Regression}；作者/平台：scikit-learn Developers；英文；官方示例。阅读分位数回归、区间覆盖率与调参部分，区分预测区间和参数置信区间；该示例不提供分布无关的覆盖保证。\href{https://scikit-learn.org/stable/auto\_examples/ensemble/plot\_gradient\_boosting\_quantile.html}{在线阅读}。
+\item \textbf{【机器学习】什么是交叉验证？为什么以及如何进行交叉验证？}；知乎；中文解说。区分模型选择与最终泛化估计；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/81738187251}{在线阅读}。
+\item \textbf{交叉验证方法汇总【附代码】（索引标题节选）}；CSDN；中文博客。比较留一法、K折与分层划分，另行检查设备分组要求；标题与主题据必应索引，原页受限，完整标题未核实。\href{https://blog.csdn.net/WHYbeHERE/article/details/108192957}{在线阅读}。
+\item \textbf{2022 - 再探宝可梦、数码宝贝分类器 — 浅谈机器学习原理}；李宏毅；bilibili；中文课程。选看第23集，结合本章假设空间与泛化条件讨论分类。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=23}{观看分集}。
+\end{itemize}
+\endgroup
 \section{本章小结}
 统计学习提供的是关于数据、模型复杂度和未见样本风险的推理框架。它不能保证某个模型在所有工业分布上有效，却能迫使实验者明确假设空间、验证规则、泄漏风险、不确定性和决策成本。
 

@@ -1,4 +1,4 @@
-\chapter{持续学习}
+﻿\chapter{持续学习}
 \label{chap:continual}
 \begin{quote}\small
 \textit{本章摘要。}持续学习把更新过程放到时间轴上，同时约束新知识获取、旧知识保持和资源增长。本章从增量设置出发，推导回放、梯度约束、参数正则和知识蒸馏，再比较隔离与扩展方法。评价对象是整个学习轨迹，而非最后一个任务。
@@ -11,6 +11,10 @@
 每次更新以后，都要重新测一遍仍需服务的旧设备，记录哪些故障开始漏检。只看最后一个阶段的总分，会看不到中途丢失的能力。另一个实际困难是，新到的记录往往还没有标签，专家不可能逐条检查。下一章的主动学习讨论怎样挑选优先标注的记录，再把得到的标签交给更新算法。
 
 \section{数据流、任务边界与遗忘}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.7cm and 0.65cm]
@@ -170,6 +174,18 @@ Progressive Networks 为新任务增加网络列，并通过横向连接复用�
 
 新相机按周接入时，应提前为每台相机固定测试集，每次更新后都在这些集合上填写评价矩阵。缓存不能混入测试样本，超参数也不能看到未来阶段的结果后反复修改。线上流程应先用当前模型预测，等工单或复检标签到达后再学习，并记录标签延迟、漂移响应时间、每阶段训练时长和累计存储。旧相机或安全关键缺陷一旦超过风险阈值，应回滚到已验收版本，而不是自动覆盖生产模型。
 
+持续学习中的回放、梯度约束和模块化更新可结合下列材料复习，前者关注持续学习实验框架，后者帮助理解增量训练实现。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Avalanche: an End-to-End Library for Continual Learning}；作者/平台：ContinualAI；英文；开源框架教程。重点阅读 scenarios、benchmarks、replay plugins 和 continual evaluation，帮助把本章的任务流、缓存、类增量与遗忘矩阵转成可重复实验。\href{https://avalanche.continualai.org/}{在线文档}。
+\item \textbf{Saving and Loading Models}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看 checkpoint、optimizer state 与模型版本保存，帮助组织本章的回放、蒸馏和参数隔离对照。\href{https://docs.pytorch.org/tutorials/beginner/saving\_loading\_models.html}{在线阅读}。
+\item \textbf{持续学习/终身学习/增量学习基础知识}；知乎；中文解说。区分任务增量、类增量与数据流设定；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/696297033}{在线阅读}。
+\item \textbf{持续学习（Continual Learning）：让AI像人类一样终身成长}；CSDN；中文博客。比较回放与参数约束，同时检查旧任务遗忘和新任务学习；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/daqianai/article/details/152846877}{在线阅读}。
+\item \textbf{2021 - 机器終身学习 (二) - 灾难性遗忘(Catastrophic Forgetting)}；李宏毅；bilibili；中文课程。选看第132集，对照本章序贯训练中的遗忘问题。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=132}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 回放重建历史风险，梯度约束限制局部干扰，参数正则保存重要方向，蒸馏保存所观察输入上的函数行为，隔离减少共享参数冲突。这些保护机制各有缺口：缓存未必覆盖稀有旧故障，一阶约束不控制有限步长曲率，对角重要性忽略参数耦合，新输入上的蒸馏不保证旧输入行为，冻结模块还依赖正确路由。没有一种方法能够脱离任务身份、历史访问和资源预算单独比较。
 

@@ -1,4 +1,4 @@
-\chapter{泛化、偏差与不确定性}
+﻿\chapter{泛化、偏差与不确定性}
 \begin{quote}\small
 \textit{本章摘要。}本章回答训练集上的好结果为什么可能在真实设备上失效。先区分经验风险与真实风险，再分析偏差方差、正则化和分布偏移，最后讨论校准与不确定性。核心结论是：泛化不是单一分数，而是关于数据范围、错误结构和部署条件的可检验陈述。
 \end{quote}
@@ -7,6 +7,10 @@
 本章先问模型将用在哪些设备和工况，再分析错误从哪里来，最后讨论什么时候应该告警。偏差--方差分解可以帮助判断：模型是否太简单，训练数据是否太少，或者新设备已经超出了原来的数据范围？它并不意味着所有模型都有同样的误差曲线，正则化也要选择合适强度。读完后，说一个模型“泛化好”，应能具体说明在哪些设备上测过、漏报和误报各有多少，以及结论还需要哪些条件。
 
 \section{经验风险与真实风险}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.7cm and 0.8cm]
@@ -123,6 +127,18 @@
 \paragraph{泛化边界的诚实表述。}
 实验只验证了特定数据来源、时间范围、设备集合和标签定义规则下的结论。论文或报告中应明确哪些条件被测试，哪些条件只是推测。对于分布外样本，模型可以拒识、输出不确定性或请求人工复核，但不能把“没有训练数据”自动等同于“模型一定知道自己不知道”。
 
+本章的偏差、方差、分布变化和校准可用以下材料复习；二者分别强调评价设计与概率输出的可靠性。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Cross-validation: evaluating estimator performance}；作者/平台：scikit-learn Developers；英文；官方文档。阅读验证集、测试集和交叉验证小节，帮助理解模型选择后仍需独立泛化评价。\href{https://scikit-learn.org/stable/modules/cross\_validation.html}{在线阅读}。
+\item \textbf{Probability Calibration}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读 calibration curve、CalibratedClassifierCV 与 Brier score，帮助理解本章的置信度、温度缩放和决策阈值。\href{https://scikit-learn.org/stable/modules/calibration.html}{在线阅读}。
+\item \textbf{通俗易懂的欠拟合与过拟合解析（含Python案例）}；知乎；中文解说。对照训练与验证误差，检查模型复杂度与泛化；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/1903580134293897493}{在线阅读}。
+\item \textbf{【机器学习\&深度学习】理解欠拟合、拟合、过拟合}；CSDN；中文博客。比较欠拟合和过拟合，再检验正则化能否改善独立测试表现；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/qq\_62223405/article/details/149040906}{在线阅读}。
+\item \textbf{2022 - 为什么用了验证集 (validation set) 结果却还是过拟合(overfitting)了呢？}；李宏毅；bilibili；中文课程。选看第32集，检查反复调参造成的选择偏差。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=32}{观看分集}。
+\end{itemize}
+\endgroup
 \section{本章小结：从误差解释走向证据约束}
 本章把“效果不好”拆成了可讨论的不同问题：有限样本使估计变化，结构限制产生偏差，噪声设置可达到的误差下限，环境变化则可能破坏全部同分布论证。正则化改变的是估计过程，重加权依赖的是可迁移假设，校准服务的是概率决策；三者不能相互替代。实际改进应先定位误差来源，再选择增加数据、修改模型或调整部署范围。
 

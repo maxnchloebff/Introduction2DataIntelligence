@@ -1,4 +1,4 @@
-\chapter{工业数据工程与实验设计}
+﻿\chapter{工业数据工程与实验设计}
 
 \begin{quote}\small
 \textit{本章摘要。}本章处理模型之前和模型之外的必要问题：数据从哪里来、时间如何对齐、缺失与异常如何解释、实验如何复现以及系统如何验收。本章结合数据生命周期讨论实验设计，是因为不可追溯的数据会使性能提升无法归因，也无法在部署后修复。
@@ -9,6 +9,10 @@
 表格里的一行数据，往往经过截取窗口、补齐缺失值和匹配工单才得到。每一步都可能改变任务：用停机后的读数补停机前的缺失，就让模型提前看到了未来；把计划维护当成故障，则改错了标签。因此要先确定预测时刻和目标，再决定怎样清洗。最后按当时记录到达的顺序回放，并通过不直接控制设备的影子运行，检查线上是否能得到同样的输入和结果。
 
 \section{从原始记录到可学习样本}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.7cm and 0.65cm]
@@ -158,6 +162,18 @@
 \paragraph{从离线到影子运行。}
 上线前先回放历史数据，再进行不影响控制回路的影子运行。影子阶段检查数据延迟、字段缺失、告警频率、模型版本和人工反馈。通过验收后才逐步开放建议或控制权限，并保留回滚阈值。上线监控应同时关注输入漂移、输出漂移、标签后验和服务资源。
 
+本章的预处理、窗口和数据质量规则可用下列官方文档交叉检查，尤其注意变换的拟合时点。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Preprocessing data}；作者/平台：scikit-learn Developers；英文；官方文档。阅读 标准化、缩放与类别编码小节，帮助理解本章的缺失机制、量纲和训练侧统计量。\href{https://scikit-learn.org/stable/modules/preprocessing.html}{在线阅读}。
+\item \textbf{Signal Processing}；作者/平台：SciPy Developers；英文；官方教程。重点阅读 filtering、Fourier transform 和 resampling 相关导航，帮助把本章的采样、混叠、频域特征与时间窗口连接起来。\href{https://docs.scipy.org/doc/scipy/tutorial/signal.html}{在线阅读}。
+\item \textbf{【机器学习】Cross-Validation（交叉验证）详解}；知乎；中文解说。用于本章实验设计与数据划分，重点检查分组和时间边界；不替代缺失机制与信号处理内容。标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/24825503}{在线阅读}。
+\item \textbf{交叉验证（Cross-Validation）}；CSDN；中文博客。用于划分流程检查；预处理必须仅在各训练折拟合，工业数据还需独立处理设备和时间相关性。标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/weixin\_42691585/article/details/113971857}{在线阅读}。
+\item \textbf{13-数据预处理-标准化}；黑马程序员；bilibili；中文课程分集。选看《黑马程序员3天快速入门python机器学习》第13集，结合第12集归一化比较尺度变换；对照本章要求，仅在训练集拟合变换参数。2026年10月4日公开元数据所列整套课程累计播放1,793,918次（不是本分集计数）；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1nt411r7tj/?p=13}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 工业数据工程把现实过程变成时间边界清楚、版本可追溯、统计依赖可解释的学习样本。模型性能的上限往往由数据管道决定；越复杂的模型，越需要可靠的数据来源与处理记录和部署验收来支撑其结论。
 

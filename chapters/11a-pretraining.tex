@@ -1,4 +1,4 @@
-\chapter{预训练：构建可复用的数据表示}
+﻿\chapter{预训练：构建可复用的数据表示}
 \label{chap:pretraining}
 \begin{quote}\small
 \textit{本章摘要。}预训练通过先行学习任务获得可复用的参数或表示。本章从数据与目标的关系出发，解释监督预训练、掩码与生成式学习、对比学习、无负样本自蒸馏及领域继续预训练。工业振动信号案例用于说明如何选择增强与遮蔽方式，以及如何区分预训练损失下降、表示改善和下游收益。
@@ -11,6 +11,10 @@
 读完本章，可以按三个问题检查自己的方案：哪些历史记录允许参与训练，遮住的部分是否太容易猜中，模型是否把不同输入都编码成了相近的结果。例如波形补得很平滑，却丢掉短时冲击，就未必有利于故障诊断。下一章继续讨论拿到预训练参数以后，哪些可以保留，哪些需要用新设备的数据重新调整。
 
 \section{预训练学到了什么}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=0.75cm and 0.75cm]
@@ -213,6 +217,18 @@ Simple Siamese (SimSiam) 去掉移动平均目标更新，使用共享编码器�
 
 预训练损失下降但线性探测不改善，可能说明任务主要学到了插值或身份线索。线性探测改善而微调收益消失，则需检查标签量、适应策略和优化预算。某些设备收益明显、另一些退化时，应报告子群差异，而非只用平均分掩盖负迁移。表示可视化只提供诊断线索，不能代替独立分类或预测评价。
 
+监督预训练、自监督目标和表示坍缩可结合下面的教程复习，分别关注训练目标与对比/非对比表示学习。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Self-Supervised Representation Learning}；作者/平台：Lilian Weng；英文；技术教程。重点阅读 pretext tasks、上下文预测和 Contrastive Predictive Coding，帮助理解本章的重建、对比目标和表示质量。\href{https://lilianweng.github.io/posts/2019-11-10-self-supervised/}{在线阅读}。
+\item \textbf{Transfer Learning for Computer Vision}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看 pretrained weights、fine-tuning、feature extraction 和 augmentation，帮助理解本章从通用预训练到领域继续训练的实验边界。\href{https://docs.pytorch.org/tutorials/beginner/transfer\_learning\_tutorial.html}{在线阅读}。
+\item \textbf{通俗易懂讲AI--自监督学习}；知乎；中文解说。区分预训练辅助目标与下游目标，比较遮蔽、重建和对比学习；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/676130861}{在线阅读}。
+\item \textbf{【深度学习】自监督学习详解（self-supervised learning）}；CSDN；中文博客。阅读对比学习和生成学习的入门说明，表示质量仍须由独立下游任务评价；已读取公开页面引言与方法概述。\href{https://blog.csdn.net/qq\_51392112/article/details/128806998}{在线阅读}。
+\item \textbf{2021 - 自监督式学习 (二) – BERT简介}；李宏毅；bilibili；中文课程。选看第72集，以语言遮蔽预训练为例对照本章自监督目标。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=72}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 预训练的设计由三件事共同决定：哪些数据可以使用、什么变化应当保持一致、什么信息必须保留。监督目标利用已有标签，掩码与生成目标恢复缺失或后续内容，对比目标定义样本关系，自蒸馏和统计约束抑制表示退化。这些目标的数学结构对应不同偏好：平方误差输出条件均值，对比交叉熵放大难区分候选的作用，停止梯度改变优化路径，方差与协方差项分别约束常量坍缩和维度重复。理解这些偏好，比记住某个模型名称更有助于判断故障信息会不会被保留。
 

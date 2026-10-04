@@ -1,4 +1,4 @@
-\chapter{参数化与非参数化模型}
+﻿\chapter{参数化与非参数化模型}
 \begin{quote}\small
 \textit{本章摘要。}本章比较两种表达函数复杂度的方式：参数化模型用有限维参数概括规律，非参数化模型则通过核、邻域或函数分布保留更灵活的形状。高斯过程和核方法贯穿全文，用来说明先验结构、计算代价和小样本性能之间的权衡，并与上一章的贝叶斯推断自然衔接。
 \end{quote}
@@ -7,6 +7,10 @@
 假设要根据转速预测温升，可以先找转速相近的历史记录取平均，这就是近邻方法的直观起点。核方法用相似程度决定记录之间怎样相互影响，高斯过程进一步描述可能的函数及其概率。方法越灵活，越需要考虑样本是否足够、计算是否承受得起。还要分清一个预测数值和一整个预测分布：两个方法给出相同的平均温升，并不意味着它们对预测有同样的把握。
 
 \section{两个概念}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 参数化模型用固定维度参数描述分布，例如线性回归$y=\bm{w}^{\mathsf T}x+b+\varepsilon$。无论样本数如何增加，参数维度仍由输入维度和模型设计决定。非参数化模型不预先固定同样意义上的有限参数维度，而允许模型复杂度随数据增长，例如$k$近邻、高斯过程和Dirichlet过程模型。
 
 \paragraph{近邻回归：由局部常数假设得到估计。}
@@ -26,17 +30,45 @@
 \paragraph{高斯过程示例。}
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[x=0.75cm,y=0.55cm]
- \draw[->] (0,0)--(8.0,0) node[right] {$x$};
- \draw[->] (0,-2.0)--(0,2.8) node[above] {$f(x)$};
- \draw[gray!45] plot[smooth] coordinates {(0,0.2)(1,0.35)(2,0.1)(3,-0.2)(4,0.0)(5,0.5)(6,0.85)(7,0.6)(8,0.9)};
- \draw[blue!70!black, thick] plot[smooth] coordinates {(0,0.0)(1,0.25)(2,0.55)(3,0.2)(4,-0.25)(5,0.1)(6,0.65)(7,0.35)(8,0.7)};
- \fill[black] (1,0.25) circle (1.5pt) (2,0.55) circle (1.5pt) (3,0.2) circle (1.5pt) (5,0.1) circle (1.5pt) (6,0.65) circle (1.5pt);
- \draw[blue!35, fill=blue!8, opacity=0.55] plot[smooth] coordinates {(0,-0.9)(1,-0.6)(2,-0.2)(3,-0.65)(4,-1.0)(5,-0.65)(6,-0.1)(7,-0.5)(8,-0.1)} -- plot[smooth] coordinates {(8,1.5)(7,1.35)(6,1.4)(5,1.1)(4,0.5)(3,1.0)(2,1.2)(1,1.1)(0,1.0)} -- cycle;
- \node[font=\scriptsize,anchor=west] at (5.8,2.0) {远离观测点，不确定性增大};
- \node[font=\scriptsize] at (3.5,-1.7) {观测点};
+\begin{tikzpicture}[x=1.15cm,y=0.85cm]
+ \filldraw[draw=blue!40,fill=blue!12]
+ (0.3,1.65) .. controls (1.2,1.65) and (1.7,1.1) .. (2.5,0.72)
+ .. controls (2.8,0.62) and (3.2,0.1) .. (3.5,0.02)
+ .. controls (3.8,0.02) and (4.2,0.55) .. (4.5,0.67)
+ .. controls (4.9,0.8) and (5.2,0.58) .. (5.5,0.42)
+ .. controls (6.2,0.6) and (6.8,1.65) .. (7.7,1.65)
+ -- (7.7,-1.55)
+ .. controls (6.8,-1.55) and (6.2,-0.65) .. (5.5,0.08)
+ .. controls (5.2,0.22) and (4.9,0.42) .. (4.5,0.33)
+ .. controls (4.2,0.2) and (3.8,-0.38) .. (3.5,-0.32)
+ .. controls (3.2,-0.25) and (2.8,0.25) .. (2.5,0.38)
+ .. controls (1.7,-0.2) and (1.2,-1.55) .. (0.3,-1.55) -- cycle;
+ \draw[->] (0,-1.85)--(8,-1.85) node[right] {$x$};
+ \draw[->] (0,-1.85)--(0,2.1) node[above] {$f(x)$};
+ \draw[gray,dashed] (2.5,-1.85)--(2.5,1.05);
+ \draw[gray,dashed] (5.5,-1.85)--(5.5,1.05);
+ \draw[blue!70!black,thick]
+ (0.3,0.05) .. controls (1.2,0.05) and (1.7,0.45) .. (2.5,0.55)
+ .. controls (2.8,0.435) and (3.2,-0.075) .. (3.5,-0.15)
+ .. controls (3.8,-0.18) and (4.2,0.375) .. (4.5,0.5)
+ .. controls (4.9,0.61) and (5.2,0.4) .. (5.5,0.25)
+ .. controls (6.2,-0.025) and (6.8,0.05) .. (7.7,0.05);
+ \foreach \x/\y in {2.5/0.55,3.5/-0.15,4.5/0.5,5.5/0.25}
+   \fill[black] (\x,\y) circle (2pt);
+ \draw[<->,blue!70!black] (0.8,-1.42)--(0.8,1.52);
+ \draw[<->,blue!70!black] (7.2,-1.42)--(7.2,1.52);
+ \node[font=\small] at (1.05,2.05) {远处区间宽};
+ \node[font=\small] at (6.95,2.05) {远处区间宽};
+ \node[font=\small] at (4,1.55) {观测附近区间窄};
+ \node[font=\scriptsize] at (4,-1.55) {观测输入范围};
+ \draw[blue!70!black,thick] (0.6,-2.4)--(1.1,-2.4);
+ \node[font=\scriptsize,anchor=west] at (1.2,-2.4) {后验均值};
+ \fill[black] (3.5,-2.4) circle (2pt);
+ \node[font=\scriptsize,anchor=west] at (3.7,-2.4) {观测点};
+ \filldraw[draw=blue!40,fill=blue!12] (5.4,-2.52) rectangle (5.85,-2.28);
+ \node[font=\scriptsize,anchor=west] at (5.95,-2.4) {逐点后验区间};
 \end{tikzpicture}
-\caption{高斯过程用观测点附近的函数相关性收缩后验方差；远离数据时预测区间通常变宽。}
+\caption{高斯过程不确定性示意：观测附近的后验区间较窄，远离观测后逐渐变宽。}
 \label{fig:kernel-gp-prediction}
 \end{figure}
 高斯过程（Gaussian process, GP）直接在函数空间上定义先验：任意有限输入集合对应的函数值服从联合高斯分布，记为$f\sim\mathcal{GP}(m,k)$。给定训练输入$X$和观测$y=f(X)+\varepsilon$，其中$\varepsilon\sim\mathcal{N}(0,\sigma^2I)$，新点$x_*$的后验均值为
@@ -49,7 +81,7 @@
 \end{equation}
 这里$X$的$n$行分别为训练输入的转置，$y\in\R^n$为观测列向量，$m$为先验均值函数，$m(X)=[m(x_1),\ldots,m(x_n)]^{\mathsf T}$，$K_{ij}=k(x_i,x_j)$，$k_*=[k(x_1,x_*),\ldots,k(x_n,x_*)]^{\mathsf T}$。噪声与潜在函数独立。式\eqref{eq:kernel-gp-variance}针对潜在函数值$f(x_*)$；若预测含独立同方差噪声的新观测，还需加上$\sigma^2$。核函数$k$表达“相似输入应有相似函数值”的先验。远离训练样本时，预测方差通常增大，这提供了自然的不确定性信号。
 
-图\ref{fig:kernel-gp-prediction}将观测点、预测曲线与不确定性带放在同一坐标中，提示读者区分均值拟合和区间宽度；远处是否回到先验还取决于所选核的相关结构。
+图\ref{fig:kernel-gp-prediction}是相关性随输入距离衰减时的定性示意，并非某组数据的数值拟合结果。黑点集中在两条虚线之间，蓝线表示后验均值，浅蓝色区域表示潜在函数值的逐点后验区间：观测附近较窄，两侧远离观测后逐渐变宽。区间宽度取决于后验标准差，而不是均值曲线的高低。例如，逐点95\%后验区间为$\mu_*\pm1.96\sigma_*$；当$k_*\to0$时，式\eqref{eq:kernel-gp-variance}中的方差缩减项趋于零，区间宽度回到先验所决定的水平，而非无限增大。这里的图示针对相关性随距离衰减的核，不能推广到所有核。
 \paragraph{GP后验不是另一个需要记忆的公式。}
 设$C=K+\sigma^2I_n$，训练中心化观测$r=y-m(X)$，新点中心化函数值$g_*=f(x_*)-m(x_*)$。GP定义和独立高斯噪声给出
 \begin{equation}
@@ -185,6 +217,18 @@ $\sigma^2>0$使半正定$K$对应的$C$正定；无噪声且有重复输入时�
 \paragraph{模型选择案例。}
 小样本温度预测可以从线性回归、核岭回归和高斯过程开始，比较留出设备上的误差、区间覆盖率、训练时间和增量更新成本。若数据规模扩大且输入包含图像或长序列，再考虑深度模型。这个顺序能够先验证任务是否可预测，再决定是否需要更复杂的表示学习。
 
+核方法和高斯过程的数学对象可用下列文档作实现对照，分别覆盖核近邻/支持向量方法与过程回归。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Support Vector Machines}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读 linear/nonlinear kernels、C、epsilon 和 dual formulation 小节，帮助理解本章的 RKHS、核岭和 SVM 对偶。\href{https://scikit-learn.org/stable/modules/svm.html}{在线阅读}。
+\item \textbf{Gaussian Processes}；作者/平台：scikit-learn Developers；英文；官方文档。重点阅读 GP regression、kernels、noise level 和 predictive uncertainty，帮助理解核函数、协方差矩阵与不确定性。\href{https://scikit-learn.org/stable/modules/gaussian\_process.html}{在线阅读}。
+\item \textbf{高斯过程回归：推导，实现和理解}；知乎；中文解说。对照核矩阵与条件高斯分布，检查预测均值和方差；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/104601803}{在线阅读}。
+\item \textbf{高斯过程回归 (Gaussian Processes Regression, GPR)简介}；CSDN；中文博客。先复算少量观测点的预测，再区分潜在函数与含噪观测的区间；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/HelloWorldTM/article/details/126980872}{在线阅读}。
+\item \textbf{03-KNN算法}；黑马程序员；bilibili；中文课程分集。选看《黑马程序员3天快速入门python机器学习》第21集，对照本章近邻方法的距离、邻居数和非参数性质，比较标准化前后的邻域；该分集不替代高斯过程推导。2026年10月4日公开元数据所列整套课程累计播放1,793,918次（不是本分集计数）；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1nt411r7tj/?p=21}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 参数化模型以明确结构换取估计效率和解释性，非参数化模型以更灵活的函数空间换取计算成本。二者不是互斥阵营，关键是让模型复杂度、数据量、先验知识和不确定性需求相互匹配。
 

@@ -1,4 +1,4 @@
-\chapter{深度生成模型}
+﻿\chapter{深度生成模型}
 \begin{quote}\small
 \textit{本章摘要。}本章从“学习数据分布而非只学习标签”出发，依次解释变分自编码器、扩散模型及其条件控制，再比较生成质量、覆盖性、可控性和计算代价。ELBO、噪声反演和物理约束把抽象生成目标连接到工业仿真、数据增强和异常样本分析。
 \end{quote}
@@ -7,6 +7,10 @@
 本章先说明要学习怎样的联合分布或条件分布，再推导相应的训练目标。接下来检查生成样本是否遗漏某些故障类型、是否符合指定工况，以及采样误差有多大。合成样本可以用于训练，但收益要在保持独立的真实设备测试集上检验。生成的裂纹看起来逼真，也不代表现场出现过这种裂纹；真实故障很少时，模型尤其容易把已有猜测反复复制出来。因此每种方法都要说明哪些性质能够从目标函数得到，哪些仍需观测和验证。
 
 \section{生成建模的目标}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
 生成模型学习数据分布$p_{\mathrm{data}}(x)$或其条件分布$p(x\mid c)$，因而可以采样、补全、去噪和估计似然。判别模型关注$p(y\mid x)$或决策边界，生成模型还试图描述输入本身的结构。
 
 \paragraph{变分自编码器。}
@@ -206,5 +210,17 @@ DDPM 使用随机反向过程，需要较多时间步。DDIM 可以构造非马�
 
 新增样本可能复制设备身份和批次标记，也可能改变故障先验比例。因此测试集须保持真实、独立且未参与生成器训练与选择，报告召回、误报和校准，而不只看训练损失。若训练指标上升而真实测试性能下降，应检查覆盖不足、生成伪影和先验变化，不能继续用更多合成数据掩盖问题。
 
+VAE、GAN、Flow 与扩散模型的联系和差异可用下列教程按模型族复习，阅读时特别对照训练目标与采样过程。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{What are Diffusion Models?}；作者/平台：Lilian Weng；英文；技术教程。阅读前向扩散、反向去噪、训练目标、classifier-free guidance 和 latent diffusion，核对本章的噪声预测与条件采样。\href{https://lilianweng.github.io/posts/2021-07-11-diffusion-models/}{在线阅读}。
+\item \textbf{From Autoencoder to Beta-VAE}；作者/平台：Lilian Weng；英文；技术教程。阅读变分自编码器、ELBO、重参数化和 Beta-VAE 部分，理解重建误差与潜变量先验之间的权衡。\href{https://lilianweng.github.io/posts/2018-08-12-vae/}{在线阅读}。
+\item \textbf{超详细的扩散模型（Diffusion Models）原理+代码}；知乎；中文解说。对照前向加噪与反向去噪，核对噪声预测目标；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/624221952}{在线阅读}。
+\item \textbf{扩散模型详解：从DDPM到Stable Diffusion再到DiT的技术演进}；CSDN；中文博客。比较采样过程和模型结构，生成质量不能代替真实数据上的下游评价；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/weixin\_67327688/article/details/155781843}{在线阅读}。
+\item \textbf{第六节 2021 - 生成式对抗网络(GAN) (一) – 基本概念介紹}；李宏毅；bilibili；中文课程。选看第58集的基本概念讲解，对照本章对抗目标；该分集不是扩散模型教程。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=58}{观看分集}。
+\end{itemize}
+\endgroup
 \paragraph{本章小结。}
 VAE 借助潜空间生成，GAN 通过对抗判别训练，flow 使用可逆变换计算似然，diffusion 逐步去噪得到样本。它们的计算方式不同，生成结果都仍需检查。用于工业任务时，既看样本是否逼真、是否覆盖需要的故障，也检查是否违背物理规律、是否泄露训练记录，最后用独立的真实数据检验下游收益。
