@@ -1,0 +1,323 @@
+﻿\chapter{物理信息神经网络：从稀疏观测重建风场}
+\label{chap:pinn}
+\begin{quote}\small
+\textit{本章摘要。}物理信息神经网络（Physics-Informed Neural Network，PINN）将观测误差、微分方程残差和初边值条件共同用于训练。本章以风电场稀疏多普勒激光雷达测量为例，推导从视线速度到连续风场的逆问题，解释自动微分、尺度处理、约束方式和主要变体，并讨论可辨识性、湍流闭合与独立验证。
+\end{quote}
+
+风电场中的尾流使下游风机入流速度下降，并改变剪切和载荷。扫描激光雷达能够在远距离取得风速信息，但观测沿有限波束和距离门分布，扫描过程还需要时间。目标因而不是把一个完整风速图输入网络，而是根据不完整、不同步且带有空间平均效应的观测，估计指定时空区域中的速度场。本章给出教学建模设置，不对应已完成的风电场实验，也不预设 PINN 优于传统反演或数值同化。
+
+雷达只沿有限方向测量，却希望得到一片区域的风速，这就是本章逆问题的起点。先用观测算子写清仪器到底测到了什么，再选定重建范围和尺度，把方程、边界与初值写入训练损失。未测到的位置主要依靠这些条件推断，因此方程残差很小，并不保证风场重建准确，还要用独立观测检验。能算出结果、能从数据确定唯一结果、能验证结果是否准确，是三个不同问题。下一章的预训练可以改善初始化或共享表示，但不能补上当前场地缺失的观测与边界约束。
+
+
+\section{从函数拟合到受约束逆问题}
+\label{sec:pinn-formulation}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
+不必先掌握完整的流体数值求解器才能理解训练流程，但需要区分函数值、对坐标的导数和对参数的梯度。后文先用视线投影说明观测不足，再建立风场方程与尺度约定，并在训练部分用一维微分方程手算一次更新；流体方程在这里提供约束，不充当额外的测量标签。
+
+\paragraph{先读懂坐标、导数与残差。}
+这里的网络不是把一幅风场图分类，而是把一个查询坐标映射到该处状态。三维问题中输入$(x,y,z,t)\in\R^4$，输出$(u,v,w,\pi)\in\R^4$；对$B$个查询点可分别组成$B\times4$的输入、输出数组。$x,y,z$是位置，$u,v,w$才是速度，不能因符号都只有一个字母就混用。参数$\theta\in\R^P$是网络内待学习的权重，不是物理空间坐标。
+
+偏导数$\partial_xu$表示固定其他坐标和时间后，沿$x$方向的速度变化率；$\partial_tu$表示固定位置的时间变化率。二阶导数$\partial_{xx}u$描述变化率自身如何变化。把一个候选函数代入方程，将左右两端移到同一侧，得到的差称为残差。残差为零表示候选满足这条方程，并不直接表示它与真实解的差为零。例如$\partial_xq=0$的任意常数函数都满足方程，要确定是哪一个常数，还需要一个函数值条件。
+
+普通监督回归通过成对样本约束函数值。PINN 进一步用已知方程约束函数在未观测位置的变化方式。设空间坐标为$\mathbf{x}\in\Omega$、时间为$t\in[0,T]$，待求状态为$\mathbf{q}(\mathbf{x},t)$，控制方程、边界条件和初始条件分别写为
+\begin{align}
+ \mathcal N_{\boldsymbol\eta}[\mathbf q](\mathbf x,t)&=\mathbf0,\qquad (\mathbf x,t)\in\Omega\times(0,T],\\
+ \mathcal B[\mathbf q](\mathbf x,t)&=\mathbf b(\mathbf x,t),\qquad \mathbf x\in\partial\Omega,\\
+ \mathbf q(\mathbf x,0)&=\mathbf q_0(\mathbf x).
+\end{align}
+其中$\boldsymbol\eta$表示方程中的物理参数，$\mathcal B$可以表示函数值、法向导数或通量。神经网络$\mathbf q_\theta$提供一个可微的连续函数近似，训练使其同时符合观测与方程\cite{raissi2019pinn,karniadakis2021physics}。
+
+符号$\Omega$是重建区域，$\partial\Omega$是它的边界，$[0,T]$是观察时间窗。$\mathcal N$是把函数及其导数组合起来的规则，称为微分算子，不是额外神经网络；$\mathcal B$提取边界上的值或导数。初值规定$t=0$时整个区域的状态，边界值规定区域边缘随时间的状态。配点上的“标签为零”指方程残差为零，不是该处风速为零。
+
+正问题在参数和初边值条件给定时求状态。逆问题则由部分观测反推状态、参数或边界输入。稀疏风场重建属于后者：即使只优化网络参数，完整风场也不是直接观测标签。若同时估计入流或有效黏度，还需要检查这些未知量是否能够被现有测量分别识别。增加待估参数会扩大解空间，不会自动提高重建可信度。
+
+配点是用于计算方程残差的时空位置，不需要对应真实风速标签。配点越多通常越能覆盖残差，但它们没有增加独立观测信息。若目标是对区域上的残差平方积分，连续量为
+\[
+\mathcal J_f=\frac1{|D|}\int_D\|r(\boldsymbol\xi)\|_2^2\,d\boldsymbol\xi,
+\qquad D=\Omega\times(0,T),
+\]
+从$\boldsymbol\xi_j\sim\rho$独立抽样并用 Monte Carlo 近似时，
+\[
+\widehat{\mathcal J}_f=\frac1{N_f}\sum_{j=1}^{N_f}\frac{\|r(\boldsymbol\xi_j)\|_2^2}{|D|\rho(\boldsymbol\xi_j)}
+\]
+在$\rho$覆盖$D$且积分有限时无偏。均匀采样时权重为常数；残差自适应采样若不除以$\rho$，就等价于改变了目标积分的空间权重。有限样本下误差还取决于残差方差，局部加点可以降低某些区域的方差，却不能创造新的观测约束。即便某个网络在全部配点上满足方程，缺少足够的初边值约束时仍可能存在多个物理解。PINN 将连续问题转化为有限样本上的优化问题，离散残差较小也不等于已证明连续解的存在、唯一性或误差上界。
+
+本章采用坐标网络直接拟合一个时间窗内的风场。它与输入一组工况后直接输出解的神经算子不同：更换场地或边界条件后，普通 PINN 往往需要重新优化。若采用跨工况预训练与适应，则应另行报告预训练数据、适应观测及额外成本。
+
+把逆问题写成算子组合有助于定位信息来源。记$\mathcal H$为雷达测量算子、$\mathcal N$为方程算子、$\mathcal C$为初边值约束，则训练实际上寻找
+\[
+\mathbf u\in\{\mathbf u:\ \mathcal H\mathbf u\approx\mathbf y,\;\mathcal N[\mathbf u]=0,\;\mathcal C[\mathbf u]=0\}.
+\]
+观测项缩小的是与仪器一致的解集合，物理项缩小的是满足所选方程的解集合；二者交集为空时，继续增大物理权重只会牺牲观测拟合。这个集合观点解释了为什么配点数量、网络宽度和损失权重都不能单独解决边界错误或观测几何退化。
+
+\section{激光雷达实际观测了什么}
+\label{sec:pinn-lidar}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.75cm and 0.7cm]
+ \node[idi input, minimum width=2.0cm] (beam) {激光雷达\\视线观测 $y_m$};
+ \node[idi process, right=of beam, minimum width=2.25cm] (operator) {观测算子\\投影与积分 $\mathcal H_m$};
+ \node[idi state, right=of operator, minimum width=2.25cm] (field) {连续风场\\$\mathbf u_\theta(\mathbf x,t)$};
+ \node[idi process, right=of field, minimum width=2.2cm] (residual) {自动微分\\方程残差};
+ \node[idi output, below=0.8cm of field, minimum width=2.4cm] (loss) {数据、物理与边界损失};
+ \draw[idi arrow] (beam)--(operator); \draw[idi arrow] (operator)--(field);
+ \draw[idi arrow] (field)--(residual); \draw[idi arrow] (residual)--(loss);
+ \draw[idi feedback] (loss) to[bend left=28] (field);
+\end{tikzpicture}
+\caption{PINN 的信息路径：观测通过测量算子约束场，微分方程和边界条件在未观测位置提供额外约束。}
+\label{fig:pinn-constraint-path}
+\end{figure}
+图\ref{fig:pinn-constraint-path}区分测量算子与微分残差：前者把场映射到可观测量，后者在配点上检验物理约束，二者不能用同一种点值误差替代。
+设三维速度为$\mathbf u=(u,v,w)^\top$。在以东、北、上为轴的局部坐标系中，若方位角$\alpha$从东向北计、仰角为$\beta$，则视线单位向量为
+\begin{equation}
+ \mathbf e(\alpha,\beta)=
+ (\cos\beta\cos\alpha,\cos\beta\sin\alpha,\sin\beta)^\top.
+\end{equation}
+仪器原始方位角若从北起算，必须先转换。径向速度正负号也应与仪器的朝向或远离约定一致。理想点测量为$\mathbf e^\top\mathbf u$，而不是速度模长$\|\mathbf u\|_2$。
+
+例如真实速度为$(3,4,0)^\top\,\mathrm{m/s}$，沿东向的波束只读到$3\,\mathrm{m/s}$，沿北向读到$4\,\mathrm{m/s}$，两者都不是模长$5\,\mathrm{m/s}$。仅有东向读数时，$(3,0,0)$与$(3,4,0)$都符合观测。若两条波束夹角为$\delta$且已知$w=0$，则$y_1=u$、$y_2=u\cos\delta+v\sin\delta$，故$v=(y_2-y_1\cos\delta)/\sin\delta$；$\delta$很小时，分母很小，测量噪声被放大。这就是后文秩和条件数在几何上的含义。
+
+实际距离门对有限探测体积内的速度加权，扫描又可能包含时间平均。以固定位置雷达为例，第$m$次观测可以表示为
+\begin{align}
+ y_m&=\mathcal H_m[\mathbf u]+\epsilon_m,\label{eq:pinn-observation}\\
+ \mathcal H_m[\mathbf u]
+ &=\int\!\int K_m(s,\tau)\,
+ \mathbf e_m(\tau)^\top
+ \mathbf u(\mathbf x_L+s\mathbf e_m(\tau),\tau)\,ds\,d\tau,\\
+ &\hspace{1cm}K_m\geq0,\qquad \int\!\int K_m(s,\tau)\,ds\,d\tau=1.
+\end{align}
+这里$\mathbf x_L$为雷达位置，$K_m$描述该次观测的距离与时间响应，$\epsilon_m$包含测量噪声。只有当探测体积和时间窗相对于流场变化足够小时，才可近似为门中心、时间戳处的点投影。激光雷达测风中的体积平均与湍流测量限制可参见相关综述\cite{sathe2013lidar}。运动平台还需修正位置、姿态和平台速度，本章先限定为固定平台。
+
+在网络训练中，可用数值求积实现这一观测算子：
+\begin{equation}
+ \widehat y_m=\sum_{a=1}^{A_m}\omega_{ma}\,
+ \mathbf e_m(t_{ma})^\top\mathbf u_\theta(\mathbf x_{ma},t_{ma}),
+ \qquad \sum_{a=1}^{A_m}\omega_{ma}=1.
+\end{equation}
+因此数据损失应比较$\widehat y_m$和$y_m$，不能将径向速度直接当作$u$分量标签。求积节点和权重来自测量模型，不是任意增加的训练标签。忽略体积平均时，模型可能以过于平滑的局部风场解释距离门观测，也可能把未分辨的剪切错误归因于噪声。
+
+单条波束在某个位置只提供一个标量约束。若扰动$\delta\mathbf u$满足$\mathbf e^\top\delta\mathbf u=0$，该观测无法区分扰动前后的速度。多台雷达在近似相同位置和时刻交叉观测时，可以组成
+\begin{equation}
+ \mathbf y=E\mathbf u+\boldsymbol\epsilon,\qquad
+ E=\begin{bmatrix}\mathbf e_1^\top\\ \vdots\\ \mathbf e_J^\top\end{bmatrix}.
+\end{equation}
+这里$E\in\R^{J\times3}$、$\mathbf y,\boldsymbol\epsilon\in\R^J$，每一行只增加一个视线投影约束。直接恢复三维速度需要$E$满列秩且条件数可接受。更一般地，在局部线性化下，观测对未知参数或场系数$\vartheta\in\mathbb R^P$的敏感度矩阵为
+\[
+G=\frac{\partial(\mathcal H[\mathbf u_\vartheta])}{\partial\vartheta}.
+\]
+若共使用$N_d$个标量观测，则$G\in\R^{N_d\times P}$；此处$R\in\R^{N_d\times N_d}$为正定观测噪声协方差，独立等方差噪声下$R=\sigma^2I$。矩阵$G^{\mathsf T}R^{-1}G\in\R^{P\times P}$衡量按噪声大小加权后各参数方向的可观测程度。若存在非零方向$\delta\vartheta$使$G\delta\vartheta=0$，则一阶观测对该方向没有辨识能力；若$G^{\mathsf T}R^{-1}G$有很小特征值，噪声会被放大为很大的参数不确定性。物理残差和边界会增加额外行，但只有当它们对该方向提供独立敏感度时才改善秩或条件数。因而“物理项降低”不能单独证明参数可辨识。两条独立视线配合已知垂直速度等额外假设，才可能恢复两个水平分量。近乎平行的波束会放大噪声，非同时扫描也不能无条件合并为同一瞬时速度。PINN 借助方程和边界在时空中传播信息，但不能消除由测量几何和未知边界共同造成的不可辨识性。
+
+\section{风场方程、尺度与物理假设}
+\label{sec:pinn-physics}
+先考虑恒密度、不可压缩流动。将压力除以流体质量密度$\rho$，记运动学压力为$\pi=p/\rho$；这里$\rho$的单位是质量除以体积，不是前文的配点采样概率密度。动量与连续性方程为
+\begin{align}
+ \nabla\cdot\mathbf u&=0,\\
+ \partial_t\mathbf u+(\mathbf u\cdot\nabla)\mathbf u
+ &=-\nabla\pi+\nu\nabla^2\mathbf u+\mathbf f.
+\end{align}
+这里$\nabla=(\partial_x,\partial_y,\partial_z)^\top$，散度$\nabla\cdot\mathbf u=\partial_xu+\partial_yv+\partial_zw$是一个标量，表示局部净流出程度；不可压缩并不是风速不随位置变化，而是这三项之和为零。梯度$\nabla\pi$为三维向量，指示压力变化方向。拉普拉斯$\nabla^2u=\partial_{xx}u+\partial_{yy}u+\partial_{zz}u$作用到速度每个分量上，产生三维向量。对流项$(\mathbf u\cdot\nabla)\mathbf u$表示随流体移动时因空间位置变化而看到的速度变化；即便$\partial_t\mathbf u=0$，流过弯曲或加速区域的流体仍可能有加速度。
+
+其中$\nu$为运动黏度，$\mathbf f$为单位质量外力。重力的静水平衡部分可吸收入压力，科里奥利力、浮力或风机作用则应按目标尺度决定是否保留。忽略这些项属于模型假设，需要与场地、稳定度和观测时间尺度匹配。
+
+对于风机尾流，不能在穿过转子的区域直接假设$\mathbf f=\mathbf0$却又期望方程解释转子动量抽取。可以用已知运行状态约束的执行器盘体力近似，也可以将重建区域限定在转子外，并提供经过验证的入口或界面条件。如果把任意体力场也交给高容量网络自由拟合，它可能吸收所有动量残差，使物理约束失去辨识作用。
+
+实际稀疏扫描通常无法解析全部湍流尺度。如果目标是时间平均速度$\overline{\mathbf u}$，雷诺平均方程包含额外应力：
+\begin{equation}
+ \partial_t\overline{\mathbf u}
+ +(\overline{\mathbf u}\cdot\nabla)\overline{\mathbf u}
+ =-\nabla\overline\pi+\nu\nabla^2\overline{\mathbf u}
+ -\nabla\cdot\overline{\mathbf u'\mathbf u'}+\overline{\mathbf f}.
+\end{equation}
+将瞬时速度分解为$\mathbf u=\overline{\mathbf u}+\mathbf u'$，其中$\mathbf u'$是偏离平均值的三维脉动。式中的$\overline{\mathbf u'\mathbf u'}$指外积的平均，即$3\times3$矩阵，其第$(i,j)$项是$\overline{u_i'u_j'}$，不是向量内积。即使$\overline{\mathbf u'}=0$，平方的平均仍可非零：脉动等概率取$+1,-1$时，平均为$0$而均方为$1$。所以平均速度不能确定全部脉动相关项，平均后的方程出现了新的未知量。这里的湍流闭合指用额外的模型假设表示平均流动方程中未确定的湍流应力，使方程可求解。采用涡黏度闭合时，常将黏性与湍流应力合并为$\nabla\cdot[2(\nu+\nu_t)S]$，其中$S=(\nabla\overline{\mathbf u}+\nabla\overline{\mathbf u}^{\top})/2$，各向同性湍动能项吸收入修正压力。当$\nu_t$随位置变化时，这一散度项不能简化为$(\nu+\nu_t)\nabla^2\overline{\mathbf u}$。估计$\nu_t$需要闭合假设、取值约束和额外证据，否则黏度、入流与压力可能互相补偿。
+
+因此应先声明重建对象是瞬时场、滤波场还是平均场，再匹配方程和观测平均尺度。本章后续以已选定的恒定有效黏度模型说明算法，并将其作为需要检验的近似。真实复杂地形、热分层和非平稳尾流可能需要扩展控制方程，不能用较大的物理损失权重弥补遗漏机制。
+
+物理损失之前先进行无量纲化。选取长度$L_0$、速度$U_0$、参考位置$\mathbf x_0$和时间$t_0$，定义
+\begin{align}
+ \mathbf x^*&=(\mathbf x-\mathbf x_0)/L_0,&
+ t^*&=(t-t_0)U_0/L_0,\\
+ \mathbf u^*&=\mathbf u/U_0,&
+ \pi^*&=\pi/U_0^2.
+\end{align}
+压力还可减去参考值，因为不可压缩动量方程只包含其空间梯度。定义$\mathrm{Re}=U_0L_0/\nu_{\mathrm{eff}}$和$\mathbf f^*=L_0\mathbf f/U_0^2$后，残差为
+\begin{align}
+ r_c&=\nabla^*\cdot\mathbf u_\theta^*,\\
+ \mathbf r_m&=\partial_{t^*}\mathbf u_\theta^*
+ +(\mathbf u_\theta^*\cdot\nabla^*)\mathbf u_\theta^*
+ +\nabla^*\pi_\theta^*
+ -\mathrm{Re}^{-1}\nabla^{*2}\mathbf u_\theta^*-\mathbf f^*.
+ \label{eq:pinn-momentum}
+\end{align}
+这使不同损失项不再因米、秒与压力的单位而任意改变相对量级。以长度尺度$L_0$和速度尺度$U_0$为例，连续性残差的自然量级是$U_0/L_0$，动量残差的自然量级是$U_0^2/L_0$；若直接平方原始残差，动量项相对连续性项会多出$(U_0)^2$的单位和尺度因素。因此应先除以各自参考尺度，或通过$\lambda_c,\lambda_m$显式定义无量纲权重。对独立观测噪声，数据残差应先除以相应噪声标准差再平方，即平方误差按方差的倒数加权；边界项则按边界测量误差和边界采样测度归一化。权重不是越大越“物理”，而是定义了不同证据之间的相对容忍度。
+
+如果输入还被映射到$[-1,1]$，计算物理导数时必须包含额外缩放的链式法则。例如$\widetilde x=2(x-x_{\min})/(x_{\max}-x_{\min})-1$时，$\partial_x=2\partial_{\widetilde x}/(x_{\max}-x_{\min})$。自动微分只对实际计算图求导，无法修正被漏写的尺度变换。
+
+\section{网络、损失与训练过程}
+\label{sec:pinn-training}
+网络以无量纲时空坐标为输入，输出三个速度分量和压力：
+\begin{equation}
+ (u_\theta^*,v_\theta^*,w_\theta^*,\pi_\theta^*)
+ =F_\theta(x^*,y^*,z^*,t^*).
+\end{equation}
+自动微分对输出关于输入求一阶和二阶导数，再将它们代入式\eqref{eq:pinn-momentum}。例如第一分量的对流项为$u^*\partial_{x^*}u^*+v^*\partial_{y^*}u^*+w^*\partial_{z^*}u^*$。这与仅对网络参数反向传播不同：优化参数时还需要保留输入导数的计算图，二阶空间导数会显著增加内存与计算开销。
+
+强形式黏性方程需要足够光滑的网络。常用$\tanh$或平滑正弦激活；分段线性的 ReLU 二阶导数几乎处处为零，不适合直接表达这里的经典二阶黏性残差。Fourier 特征可增强高频表示，但过高频率会放大导数并加重优化困难。若输入角度来自雷达元数据，其三角函数只用于观测算子，不应与风场坐标混淆。
+
+若第$m$个径向观测的标准差为$\sigma_m$，可将数据项写成
+\begin{equation}
+ \mathcal L_d=\frac1{N_d}\sum_{m=1}^{N_d}
+ \left(\frac{\mathcal H_m[\mathbf u_\theta]-y_m}{\sigma_m}\right)^2.\label{eq:pinn-weighted-data-loss}
+\end{equation}
+式中$y_m,\sigma_m$使用同一速度单位，网络虽输出$\mathbf u_\theta^*$，代入观测算子前需还原$\mathbf u_\theta=U_0\mathbf u_\theta^*$并对应到实际坐标。等价地，可同时将观测与标准差除以$U_0$，全程使用无量纲速度；不能只缩放预测而保留原始标签。例如$U_0=10\,\mathrm{m/s}$时，预测$u^*=0.3$应与$3\,\mathrm{m/s}$比较，而非与原单位标签直接相减。式\eqref{eq:pinn-weighted-data-loss}对应独立高斯噪声下的加权最小二乘。距离门或扫描之间具有相关噪声时，应考虑残差协方差及有效样本量，不能把重叠门当作独立证据重复加权。质量控制可筛除受降水、遮挡或低信噪比影响的观测，阈值应事先固定。离群值较多时可比较 Huber 损失，但稳健损失不能代替错误时间戳或仪器偏差的校准。
+
+在$N_f$个内部配点上计算连续性和动量项，并加入边界、初值与压力规范约束：
+\begin{align}
+ \mathcal L_f&=\frac1{N_f}\sum_{j=1}^{N_f}
+ \left[\lambda_c|r_c(\boldsymbol\xi_j)|^2
+ +\lambda_m\|\mathbf r_m(\boldsymbol\xi_j)\|_2^2\right],\\
+ \mathcal L&=\lambda_d\mathcal L_d+\mathcal L_f
+ +\lambda_b\mathcal L_b+\lambda_i\mathcal L_i
+ +\lambda_g\mathcal L_g+\lambda_\eta\mathcal R(\boldsymbol\eta).
+ \label{eq:pinn-loss}
+\end{align}
+其中$\boldsymbol\xi_j$为无量纲时空坐标，$\mathcal L_b$和$\mathcal L_i$分别是边界、初值误差。压力可加上任意仅随时间变化的函数而不改变动量方程，因此$\mathcal L_g$可在每个采样时刻固定一个参考点的压力，或固定空间平均压力。只固定一个时空点不足以消除整个非稳态问题的压力自由度。$\mathcal R$用于约束待估物理参数；已知参数时无需这一项。
+
+\paragraph{一个可手算的微分训练例子。}
+先用无量纲的一维问题$q'(x)+q(x)=0$、$q(0)=1$说明计算顺序，区间为$[0,1]$，真实解为$e^{-x}$。暂用$q_{a,b}(x)=ax+b$代替大网络，则输入导数为$q'=a$，残差为$r(x)=a+ax+b$。取配点$x=0,1$，边界权重为$1$，损失是
+\[
+ \mathcal L(a,b)=\tfrac12[(a+b)^2+(2a+b)^2]+(b-1)^2.
+\]
+在$a=0,b=1$时，边界误差为零，但两个方程残差均为$1$，所以$\mathcal L=1$。参数梯度为$\partial_a\mathcal L=(a+b)+2(2a+b)=3$、$\partial_b\mathcal L=(a+b)+(2a+b)+2(b-1)=2$。学习率$0.1$的一步更新得到$a=-0.3,b=0.8$，残差变为$0.5,0.2$，总损失为$0.185$。这里先对坐标$x$求导以形成物理残差，再对参数$a,b$求导以学习函数，是两次不同的求导。直线模型不能在全区间精确表达$e^{-x}$，即便优化完成也有表达误差。
+
+自动微分沿加、乘、激活等运算的链式法则计算上述导数，不是以相邻观测之差近似导数；其结果在浮点误差范围内忠实于网络计算图，而非忠实于未知真实风场。这个小例还显示，软边界可能在更新中暂时变差，必须分别监测边界项与内部项。
+
+\paragraph{从残差到参数梯度。}
+将所有配点、观测和边界条件对应的残差排列为$r(\theta)\in\R^K$，令$\theta\in\R^P$、固定权重矩阵$W\in\R^{K\times K}$，并暂时写加权平方损失为
+\[
+\mathcal L(\theta)=\frac12 r(\theta)^{\mathsf T}Wr(\theta),\qquad W\succeq0.
+\]
+若$J_r=\partial r/\partial\theta\in\mathbb R^{K\times P}$，则逐项链式法则给出
+\[
+\nabla_\theta\mathcal L=J_r^{\mathsf T}Wr,
+\qquad
+\nabla_\theta^2\mathcal L\approx J_r^{\mathsf T}WJ_r,
+\]
+其中第二式忽略残差对参数的二阶项，是 Gauss--Newton 近似。这里的$J_r$不仅包含$\partial F_\theta/\partial\theta$，还包含例如$\partial(\partial_xu_\theta)/\partial\theta$和$\partial(\partial_{xx}u_\theta)/\partial\theta$；因此自动微分先对输入求导，再对所得残差对参数反向传播。残差很大并不必然产生大更新：若网络在该点对参数的雅可比接近零，梯度仍可能很小，这正是饱和激活和 PINN 病态优化的一个来源。
+
+为简化这一段推导的记号，暂用$u,f,r_m$分别表示三维速度、体力和动量残差向量。对一个内部点的$r_m=\partial_tu+(u\cdot\nabla)u+\nabla\pi-\nu\nabla^2u-f$，在所需混合偏导连续时，其任意参数$\theta_p$的导数为
+\[
+\frac{\partial r_m}{\partial\theta_p}=\partial_t\frac{\partial u}{\partial\theta_p}
++\left(\frac{\partial u}{\partial\theta_p}\cdot\nabla\right)u
++(u\cdot\nabla)\frac{\partial u}{\partial\theta_p}
++\nabla\frac{\partial\pi}{\partial\theta_p}
+-\nu\nabla^2\frac{\partial u}{\partial\theta_p}.
+\]
+这说明训练不是只让输出接近标签，而是让网络参数改变后其导数结构也朝残差下降的方向变化。上述式子假定$\nu$和$f$固定。若$\nu$也待估，则还要增加$-\partial_{\theta_p}\nu\,\nabla^2u$项；若外力$f$也依赖待估参数，还要增加$-\partial_{\theta_p}f$。遗漏这些依赖会使逆参数梯度错误。
+
+边界条件应来自物理设置，而不是为了降低损失任意补齐。对一阶时间方程，给定初值通常决定时间演化；对含空间二阶导数的黏性方程，还需要足够的空间边界信息。若入口速度、压力和出口通量同时被强行指定而彼此不相容，连续问题本身可能无解。离散训练中，这表现为数据项与边界项的残差不能同时下降；此时调权重只是在两类冲突之间选择，并没有修复问题。相反，边界条件不足会留下零空间：存在不同的$\mathbf q$具有相同观测和相同内部残差，却在未约束边界上不同。因此应通过边界类型、数量和独立观测检查唯一性，而不是以网络输出平滑作为证据。
+上游测风可约束入流，地表可在适用分辨率下采用无滑移或壁面模型，开放边界则需要与流动方向和数值模型相符的条件。粗糙地表附近未被解析时，强行令全部近地网格速度为零会改变垂直剪切。初始场未知时可以用低维参数化联合估计，并明确先验来源；不能将任意零场当作真实初值。
+
+软约束通过损失惩罚边界误差。Dirichlet 条件指直接指定边界上的函数值；对适合的这类条件，也可构造硬约束
+\begin{equation}
+ q_\theta(\boldsymbol\xi)=g(\boldsymbol\xi)
+ +d(\boldsymbol\xi)\widetilde q_\theta(\boldsymbol\xi),
+ \qquad d|_{\Gamma_D}=0.
+\end{equation}
+例如区间$[0,1]$上要求$q(0)=1,q(1)=0$，可取$q_\theta(x)=1-x+x(1-x)\widetilde q_\theta(x)$。代入两个端点即可检查，无论网络参数怎样更新，端点值都保持不变；内部残差仍需训练，求导时也必须对$x(1-x)$使用乘积法则。
+
+这里$g$是满足边界值的延拓，$d$是适当光滑的消失函数。硬约束消除了该部分边界误差，却要求边界数据相容，并可能改变导数尺度。将含噪测量精确写入硬约束，会把测量误差固定在解中。三维速度也可写成光滑向量势的旋度以自动满足散度为零，但拓扑、边界构造和更高阶导数成本仍需处理。
+
+复合损失存在梯度竞争：数据项可能快速下降，而动量项几乎不变，或者物理项主导更新使网络忽略观测。相关研究分析了 PINN 的梯度病态和训练失败模式\cite{wang2021gradient,krishnapriyan2021failure}。训练应分别跟踪各项残差及参数梯度范数，先检查尺度和方程，再考虑调整权重。自适应权重需要限幅或归一化，不能让难拟合的数据项被持续降权后掩盖模型失配。
+
+\begin{algorithm}[htbp]
+\caption{稀疏激光雷达风场重建的 PINN 训练}
+\label{alg:pinn-wind}
+\begin{algorithmic}[1]
+\Require 训练扫描、观测算子、可用初边值信息、物理假设与验证扫描
+\State 固定坐标、符号、时间戳、质量控制和无量纲尺度
+\State 初始化坐标网络及有约束的待估参数
+\For{每个训练阶段}
+ \State 采样内部配点、边界点和初值点，保留基础覆盖
+ \State 用距离门求积计算径向预测与数据损失
+ \State 自动微分计算连续性、动量及边界残差
+ \State 按式\eqref{eq:pinn-loss}更新参数，记录各项损失和梯度
+ \State 在验证扫描上检查观测误差，并在独立配点上检查残差
+\EndFor
+\State 冻结模型和选择规则，在留出观测与独立仪器上验收
+\end{algorithmic}
+\end{algorithm}
+
+Adam 可用于早期优化，随后可在固定配点和确定性目标上尝试 Limited-memory Broyden--Fletcher--Goldfarb--Shanno (L-BFGS)。频繁更换配点会改变后者的目标并影响曲率近似，因此两阶段优化不是无需条件的默认保证。停止规则应结合独立验证误差、残差和预算，而非只看总训练损失。若验证误差持续恶化，应检查边界冲突、噪声模型或欠拟合，不应单纯提高物理权重。
+
+\section{主要变体及其适用条件}
+残差自适应采样先在候选点上评估误差，再增加高残差区域的配点。它适合尾流剪切层和局部变化较强的位置，但必须保留全域基础覆盖。高残差也可能来自错误方程或边界，反复加点不一定能够解决。若原目标是均匀体积积分，按非均匀分布采样后应进行相应的重要性修正，否则训练实际强调了新的空间权重。对独立均匀测试配点的评估可以区分局部拟合与全域改善。
+
+弱形式或变分 PINN 将微分方程乘以测试函数并积分，适当分部积分可降低网络所需的导数阶数\cite{kharazmi2021hpvpinn}。例如对扩散项和在边界为零的测试函数$\varphi$，有
+\begin{equation}
+ \int_\Omega(-\nabla^2q)\varphi\,d\mathbf x
+ =\int_\Omega\nabla q\cdot\nabla\varphi\,d\mathbf x.
+\end{equation}
+非零边界测试函数还会产生通量边界项。弱形式减少了直接计算二阶导数的需要，但测试空间和积分精度决定哪些残差能够被检测，不能把少量积分约束视为处处守恒的证明。
+
+区域分解为不同子域训练局部网络，并在交界处约束状态与相应通量。Extended Physics-Informed Neural Network (XPINN) 将这种思路扩展到时空分解\cite{jagtap2020xpinn}。风电场可按风机邻域或尾流区域分区，以改善局部尺度表示并支持并行训练。接口仅匹配速度而忽略压力或应力一致性，仍可能产生动量跳变，分区数量增加也会增加接口优化成本。
+
+时间分窗和因果训练强调先拟合早期状态，再逐步处理后续时间。一个常见的加权思路是令第$k$个时间段的残差权重取
+\begin{equation}
+ a_k=\exp\left(-\gamma\sum_{j<k}\mathcal L_{f,j}\right),\qquad \gamma>0.\label{eq:pinn-causal-weight}
+\end{equation}
+早期误差较大时，后续时间段暂时减小权重。使用式\eqref{eq:pinn-causal-weight}时应说明是否对权重停止梯度，以及如何逐渐开放后续时间段。权重长期接近零会造成后段完全未学到，必须单独验收每个时间窗。窗口交界还需状态传递，错误初值可能沿时间累积。
+
+逆参数 PINN 将$\boldsymbol\eta$与$\theta$共同优化。正黏度可通过$\nu_{\mathrm{eff}}=\nu_{\min}+\log(1+\exp a)$参数化，但正值并不等于物理可辨识。应比较不同初值和先验下的参数稳定性，并分析参数变化是否会被速度或边界补偿。只有参数在独立工况上也能解释观测时，才适合将其解释为物理量，而不仅是有效拟合系数。
+
+贝叶斯 PINN 则为参数或场表示设置先验，以后验表达部分不确定性\cite{yang2021bpinn}。形式上可写为
+\begin{equation}
+ p(\theta,\boldsymbol\eta\mid\mathbf y)
+ \propto p(\mathbf y\mid\theta,\boldsymbol\eta)
+ p(\text{物理约束}\mid\theta,\boldsymbol\eta)
+ p(\theta,\boldsymbol\eta).
+\end{equation}
+将物理残差当作概率因子时，残差尺度也必须建模，不能任意解释成已知测量噪声。多个随机种子训练的集合能揭示部分优化敏感性，但不是严格的后验样本。无论采用哪种区间，都应在独立观测上检查覆盖率，并区分测量噪声、有限观测和方程失配造成的不确定性。
+
+\section{风电场案例的验证流程}
+\label{sec:pinn-validation}
+一个可检验的案例应先写清场地、扫描几何和重建时间窗。每条观测至少记录时间戳、雷达位置、波束方向、距离门响应、径向速度和质量标记。风机位置与运行状态用于定义几何或体力，入口信息只能使用任务开始时确实能够得到的测风数据。若扫描覆盖多个高度，可以研究三维重建；若只有近水平的一层扫描，就应把任务限定为二维或准二维，并明确采用了怎样的垂直输运假设，不能据此宣称恢复完整三维湍流。
+
+重建窗口内使用晚于目标时刻的观测属于离线平滑，不能称为实时预测。在线重建只能使用当时已到达的扫描，并计入扫描延迟、质量控制、优化和查询时间。滚动窗口可用上一窗口参数初始化，但要记录跨窗口传递的信息。跨日期或跨风况部署需要独立测试，单窗口拟合成功不代表已经学习到可直接迁移的通用求解器。
+
+数据划分应按完整扫描、连续时间段或独立雷达组织，避免将同一扫描的相邻距离门随机分到训练与测试后夸大泛化。验证集用于选择权重、网络规模和停止时刻，测试观测在选择完成前保持隐藏。已知几何和公共物理方程可以用于测试区域配点，但测试风速及由其反推的边界不能进入训练。应区分窗口内未观测位置的插值重建与新窗口的泛化，两者难度不同。
+
+仅有径向观测时，可以在留出集合$\mathcal T$上报告
+\begin{equation}
+ \operatorname{RMSE}_{\mathrm{LOS}}
+ =\sqrt{\frac1{|\mathcal T|}\sum_{m\in\mathcal T}
+ (\mathcal H_m[\mathbf u_\theta]-y_m)^2}.
+\end{equation}
+这一指标检验测量空间的一致性，不能证明每个速度分量都准确。若有独立三维风速参考，还应报告各分量误差、风向误差以及按空间区域分组的误差。低风速下风向不稳定，需要事先定义有效风速范围。对有限测点或探测体积，应将预测映射到参考仪器的采样尺度后比较。
+
+合成试验可以从未参与训练的流场参考中模拟波束、距离门平均、扫描顺序和噪声，从而获得全场误差；若训练和参考都使用完全相同的简化方程，试验只检验理想匹配条件。为检查模型失配，还应改变入流、闭合或地形条件。真实试验可使用独立交叉雷达或测风仪器，但应说明其覆盖范围和自身误差。缺少全场真值时，不能用满足所假设方程来替代真实精度证据。
+
+对照至少包括采用相同径向观测算子的无物理网络、适用的正则化反演，以及可获得时的数值模型同化。把已知完整速度分量交给某个基线，却只给 PINN 径向速度，会改变任务条件。所有方法应共享可用观测、边界来源和调参划分，同时报告训练或同化成本、单点查询成本和整个时间窗的交付延迟。
+
+消融可以依次检查连续性约束、动量约束、真实距离门算子和边界信息的作用，并在匹配计算预算下比较。若去掉体积平均后径向误差变化很小而剪切误差增大，说明观测拟合不足以识别局部结构。若增加物理权重降低残差却提高独立观测误差，则应检查方程和边界失配。若更多扫描角度显著降低分量误差，收益可能主要来自观测几何改善，而不是网络规模。
+
+下游应用还应验收轮毂高度速度、转子面平均入流、尾流亏损与位置等目标，并说明参考上游风速的定义。由稀疏平均场不能直接推断湍流强度或疲劳载荷；这些量需要相应时间分辨率和动力学信息。物理残差应在未参与训练的配点上报告，并辅以控制体净通量等积分检查。所有残差较小仍只是所选模型的一致性证据。
+
+部署时可以联合监测径向创新、分区域物理残差、观测几何和不确定区间。观测大面积缺失、波束几何退化或边界状态超出训练范围时，应扩大不确定性说明并限制输出用途，必要时回退到已验证的测风或同化流程。自动微分能够精确计算网络导数，但不能保证网络代表了真实大气。
+
+物理信息神经网络需要同时理解自动微分和方程残差，下面的材料提供相应讲解与代码示例。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Burgers equation}；作者/平台：DeepXDE；英文；官方代码教程。阅读 Problem setup 和 Implementation，以 Burgers 方程核对时空域、初边值条件、Jacobian/Hessian、PDE 残差与训练损失的代码对应。\href{https://deepxde.readthedocs.io/en/latest/demos/pinn\_forward/burgers.html}{在线阅读}。
+\item \textbf{The Fundamentals of Autograd}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看 requires\_grad、Jacobian、higher-order derivatives 与 autograd，帮助实现本章的 PDE 导数、残差构造和梯度检查。\href{https://docs.pytorch.org/tutorials/beginner/introyt/autogradyt\_tutorial.html}{在线阅读}。
+\item \textbf{PINN——加入物理约束的神经网络}；知乎；中文解说。分别写出观测损失、方程残差与边界条件，对照本章约束设计；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/544561165}{在线阅读}。
+\item \textbf{物理信息神经网络（PINN）: 将物理知识融合到深度学习中}；CSDN；中文博客。核对自动微分与无量纲化；低方程残差不保证逆问题可辨识；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/qq\_28247201/article/details/136072595}{在线阅读}。
+\item \textbf{物理信息神经网络 PINNs 融合物理定律与深度学习}；上传者：北游知；bilibili；中文技术讲解。按公开简介对照本章自动微分、方程残差、边界条件与参数反演；先核对损失各项，再检查尺度和可辨识性，不把教程中的前景描述当作精度保证。2026年10月4日公开元数据播放6,523次；在直接相关的中文解说候选中优先选用，未采用播放更高的机翻转载课程。已核对公开简介、标题和计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1WfQsB6EKn/}{观看视频}。
+\end{itemize}
+\endgroup
+\paragraph{本章小结。}
+PINN 用方程帮助推断稀疏观测之间的风场。使用前要写清雷达的测量方式和重建尺度，再设置方程残差、初值和边界条件。多放一些配点，只是多检查一些位置是否符合方程；增加独立视角的观测，才可能带来新的测量信息。报告结果时应同时说明测量精度、方程与现场的偏差、数据能否确定所求风场，以及计算开销。一张平滑的图和较低的训练损失还不够。

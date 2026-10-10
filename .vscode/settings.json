@@ -1,0 +1,62 @@
+{
+  // ===== 外部 PDF 阅读器：SumatraPDF =====
+  "latex-workshop.view.pdf.viewer": "external",
+
+  // 正向搜索（.tex -> PDF）：-reuse-instance 复用窗口，避免每次编译弹新窗口
+  "latex-workshop.view.pdf.external.viewer.command": "C:/Program Files/SumatraPDF/SumatraPDF.exe",
+  "latex-workshop.view.pdf.external.viewer.args": [
+    "-reuse-instance",
+    "%PDF%"
+  ],
+
+  // 正向搜索定位命令。必须用 -forward-search（专为 SyncTeX 设计，自动带上行号/列号），
+  // 不要用 -page，否则只能跳页、精度会退化成整页。
+  "latex-workshop.view.pdf.external.synctex.command": "C:/Program Files/SumatraPDF/SumatraPDF.exe",
+  "latex-workshop.view.pdf.external.synctex.args": [
+    "-reuse-instance",
+    "-forward-search",
+    "%TEX%",
+    "%LINE%",
+    "%PDF%"
+  ],
+
+  // 编译后自动正向定位一次
+  "latex-workshop.synctex.afterBuild.enabled": true,
+
+  // 逆向搜索（PDF 双击 --> 跳回 .tex）不在这里配置：
+  // 它由 SumatraPDF 侧的 InverseSearchCmdLine 决定，已改为调用 VS Code。
+  // 位置：%LOCALAPPDATA%\SumatraPDF\SumatraPDF-settings.txt
+
+  // ===== 编译链 =====
+  // ctexbook uses XeLaTeX.
+  "latex-workshop.latex.outDir": "%DIR%",
+  "latex-workshop.latex.tools": [
+    {
+      "name": "latexmk-xelatex",
+      "command": "latexmk",
+      "args": [
+        "-xelatex",
+        "-synctex=1",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-halt-on-error",
+        "-outdir=%OUTDIR%",
+        "%DOC%"
+      ]
+    }
+  ],
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "latexmk (XeLaTeX)",
+      "tools": ["latexmk-xelatex"]
+    }
+  ],
+  "latex-workshop.latex.recipe.default": "first",
+
+  "latex-workshop.latex.autoBuild.debounce": 1500,
+  "[latex]": {
+    "editor.wordWrap": "on"
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda"
+}

@@ -1,69 +1,67 @@
-This is BibTeX, Version 0.99e (TeX Live 2026)
+This is BibTeX, Version 0.99d (TeX Live 2025)
 Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: main.aux
-A level-1 auxiliary file: chapters/00-mathematical-preliminaries.aux
-A level-1 auxiliary file: chapters/01-foundations.aux
-A level-1 auxiliary file: chapters/01b-linear-models.aux
-A level-1 auxiliary file: chapters/02-learning-pipeline.aux
-A level-1 auxiliary file: chapters/02b-optimization-training.aux
-A level-1 auxiliary file: chapters/03-generalization.aux
-A level-1 auxiliary file: chapters/03b-statistical-learning.aux
-A level-1 auxiliary file: chapters/03c-data-engineering.aux
-A level-1 auxiliary file: chapters/04-bayesian.aux
-A level-1 auxiliary file: chapters/05-parametric-nonparametric.aux
-A level-1 auxiliary file: chapters/06-sequence.aux
-A level-1 auxiliary file: chapters/07-vision.aux
-A level-1 auxiliary file: chapters/08-llm.aux
-A level-1 auxiliary file: chapters/09-multimodal.aux
-A level-1 auxiliary file: chapters/10-generative.aux
-A level-1 auxiliary file: chapters/10b-pinn.aux
-A level-1 auxiliary file: chapters/11a-pretraining.aux
-A level-1 auxiliary file: chapters/11-transfer.aux
-A level-1 auxiliary file: chapters/11b-continual.aux
-A level-1 auxiliary file: chapters/11c-active.aux
-A level-1 auxiliary file: chapters/12-federated.aux
-A level-1 auxiliary file: chapters/13-manifold.aux
-A level-1 auxiliary file: chapters/13b-meta.aux
+A level-1 auxiliary file: chapters/01-mathematical-preliminaries.aux
+A level-1 auxiliary file: chapters/02-foundations.aux
+A level-1 auxiliary file: chapters/03-linear-models.aux
+A level-1 auxiliary file: chapters/04-learning-pipeline.aux
+A level-1 auxiliary file: chapters/05-optimization-training.aux
+A level-1 auxiliary file: chapters/06-statistical-learning.aux
+A level-1 auxiliary file: chapters/07-bayesian.aux
+A level-1 auxiliary file: chapters/08-parametric-nonparametric.aux
+A level-1 auxiliary file: chapters/09-sequence.aux
+A level-1 auxiliary file: chapters/10-vision.aux
+A level-1 auxiliary file: chapters/11-llm.aux
+A level-1 auxiliary file: chapters/12-multimodal.aux
+A level-1 auxiliary file: chapters/13-generative.aux
+A level-1 auxiliary file: chapters/14-pinn.aux
+A level-1 auxiliary file: chapters/15-pretraining.aux
+A level-1 auxiliary file: chapters/16-transfer.aux
+A level-1 auxiliary file: chapters/17-continual.aux
+A level-1 auxiliary file: chapters/18-active.aux
+A level-1 auxiliary file: chapters/19-federated.aux
+A level-1 auxiliary file: chapters/20-manifold.aux
+A level-1 auxiliary file: chapters/21-meta.aux
 The style file: plain.bst
 Database file #1: references.bib
-You've used 117 entries,
+You've used 112 entries,
             2118 wiz_defined-function locations,
-            1036 strings with 22638 characters,
-and the built_in function-call counts, 38599 in all, are:
-= -- 3485
-> -- 2251
+            1005 strings with 22023 characters,
+and the built_in function-call counts, 37048 in all, are:
+= -- 3319
+> -- 2204
 < -- 1
-+ -- 894
-- -- 764
-* -- 2665
-:= -- 6597
-add.period$ -- 351
-call.type$ -- 117
-change.case$ -- 718
++ -- 875
+- -- 750
+* -- 2557
+:= -- 6340
+add.period$ -- 336
+call.type$ -- 112
+change.case$ -- 696
 chr.to.int$ -- 0
-cite$ -- 117
-duplicate$ -- 1465
-empty$ -- 3110
-format.name$ -- 764
-if$ -- 7889
+cite$ -- 112
+duplicate$ -- 1408
+empty$ -- 2973
+format.name$ -- 750
+if$ -- 7569
 int.to.chr$ -- 0
-int.to.str$ -- 117
-missing$ -- 118
-newline$ -- 588
-num.names$ -- 234
-pop$ -- 899
+int.to.str$ -- 112
+missing$ -- 114
+newline$ -- 563
+num.names$ -- 224
+pop$ -- 888
 preamble$ -- 1
-purify$ -- 603
+purify$ -- 587
 quote$ -- 0
-skip$ -- 867
+skip$ -- 828
 stack$ -- 0
-substring$ -- 1693
-swap$ -- 180
+substring$ -- 1546
+swap$ -- 174
 text.length$ -- 1
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 464
+type$ -- 442
 warning$ -- 0
-while$ -- 313
-width$ -- 120
-write$ -- 1213
+while$ -- 293
+width$ -- 115
+write$ -- 1158

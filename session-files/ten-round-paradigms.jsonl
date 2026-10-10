@@ -1,0 +1,25 @@
+{"chapter":"chapters\\11b-continual.tex","round":1,"reader_question":"持续学习究竟评价最后模型还是整个更新轨迹？","change":"在开篇明确评价对象是沿时间轴仍服务历史分布的更新过程，而非只看最后一次收敛。","verification":"完整阅读本章当前文本并复核开篇、数据流定义与回放段落；术语和符号维度未见需同步修改。"}
+{"chapter":"chapters\\11b-continual.tex","round":2,"reader_question":"类增量中的“类”和任务增量中的任务是否是同一层级？","change":"在任务类型段补充类不应误读为任务，强调类增量仍需统一预测已见类别。","verification":"再次完整阅读本章并核对任务、类别、阶段术语及后续缓存描述。"}
+{"chapter":"chapters\\11c-active.tex","round":1,"reader_question":"主动学习是否只是把训练集变大？","change":"在开篇明确标注预算与部署风险目标，区分查询策略和训练集扩充。","verification":"完整阅读本章当前文本并复核查询规则、预算和验收段落；获取分数与标签的区分已保持一致。"}
+{"chapter":"chapters\\12-federated.tex","round":1,"reader_question":"数据不出本地是否就等于隐私安全？","change":"在开篇明确同时追踪统计目标、通信过程和可观察信息，避免把分散存储当作隐私保证。","verification":"完整阅读本章当前文本并复核问题定义、聚合与隐私段落；权重、参与概率和更新符号保持一致。"}
+{"chapter":"chapters\\13-manifold.tex","round":1,"reader_question":"二维图好看是否就说明故障可分？","change":"在开篇补充几何表示必须服务预测问题，强调可视化不是终点。","verification":"完整阅读本章当前文本并复核几何假设、PCA和邻域警告；维度定义与训练变换说明保持一致。"}
+{"chapter":"chapters\\13b-meta.tex","round":1,"reader_question":"少样本高分是否真的表示能适应新任务？","change":"在开篇明确评价必须是支持集适应后对未见查询样本的表现。","verification":"完整阅读本章当前文本并复核双层目标、episode及支持查询划分；元参数与适应参数维度说明保持一致。"}
+{"chapter":"chapters\\11c-active.tex","round":2,"reader_question":"acquisition function 是标签还是训练目标？","change":"首次出现时补充英文术语并保持其为未来收益的排序分数，明确不等于标签。","verification":"再次完整阅读本章并核对查询、训练、验收三者边界。"}
+{"chapter":"chapters\\12-federated.tex","round":2,"reader_question":"client、server 与全局目标的角色是否混淆？","change":"在全局目标前补充客户端与服务器的中文角色说明。","verification":"再次完整阅读本章并核对客户端编号、服务器聚合及权重符号。"}
+{"chapter":"chapters\\13-manifold.tex","round":2,"reader_question":"Isomap 保留的是普通距离还是流形上的距离？","change":"首次出现时补充中文释义并明确为测地距离。","verification":"再次完整阅读本章并核对邻域图、最短路径与后续算法术语。"}
+{"chapter":"chapters\\13b-meta.tex","round":2,"reader_question":"shot 是否也包括查询集样本？","change":"在 N-way K-shot 首次定义中明确 shot 只计支持集。","verification":"再次完整阅读本章并核对 episode 例子、支持查询划分和元测试流程。"}
+{"chapter":"chapters\\11b-continual.tex","round":3,"reader_question":"集合大小符号是否会被读成向量范数？","change":"在回放算例中明确竖线表示集合大小，并修正任务类型句的标点。","verification":"再次完整阅读并核对缓存、批量和参数维度。"}
+{"chapter":"chapters\\11c-active.tex","round":3,"reader_question":"待处理标注是否已计入 L？","change":"明确 |L| 只计已返回有效标签，避免重复派单和预算统计混淆。","verification":"再次完整阅读并核对池、查询集、预算和停止条件。"}
+{"chapter":"chapters\\12-federated.tex","round":3,"reader_question":"算例中的 0.1 是参数还是客户端编号？","change":"明确算例结果为标量参数值。","verification":"再次完整阅读并核对参数维度、客户端编号和聚合公式。"}
+{"chapter":"chapters\\13-manifold.tex","round":3,"reader_question":"邻域图中的距离、边权和测地距离是否相同？","change":"完整复读后确认已有区分：边长/相似度、图最短路径和测地距离分别说明；本轮不扩写。","verification":"完整复读本章全部文本，未发现需要新增修改的同类混淆。"}
+{"chapter":"chapters\\13b-meta.tex","round":3,"reader_question":"N 和 K 在 N-way K-shot 中各代表什么？","change":"明确 N 是类别数，K 是每类支持样本数，shot 只计支持集。","verification":"再次完整阅读并核对 episode 例子、参数维度及查询集定义。"}
+{"chapter":"chapters\\11b-continual.tex","round":4,"reader_question":"回放目标归一化后，极小点相同是否表示训练步也相同？","change":"区分极小点不变与梯度缩放，说明保持同一步更新需要相应调整学习率；整理类增量句的作用域。","verification":"完整分段阅读227行，补读所有被截断接缝；复读34—71行核对风险权重与更新尺度。"}
+{"chapter":"chapters\\11c-active.tex","round":4,"reader_question":"平均标签梯度为零，为什么预测熵的梯度却不一定为零？","change":"明确先求每个假想标签的梯度再加权，不是对带参数依赖权重的总和求导。","verification":"完整分段阅读214行并补读接缝；复读118—128行，确认概率归一化导数和EER边界一致。"}
+{"chapter":"chapters\\12-federated.tex","round":4,"reader_question":"一步FedAvg等价集中式更新还需要哪些共同条件？","change":"在推导前明确共同初始参数、共同步长、全参与及一步全梯度条件。","verification":"完整分段阅读287行并补读接缝；复读49—58行，核对加权和推导和条件无偏说明。"}
+{"chapter":"chapters\\13-manifold.tex","round":4,"reader_question":"PCA重构损失中两个投影为何能合并为一个？","change":"补充迹的循环性质和投影幂等关系，解释推导第二行。","verification":"完整分段阅读282行并补读接缝；复读52—65行核对矩阵维度、迹和最优化方向。"}
+{"chapter":"chapters\\13b-meta.tex","round":4,"reader_question":"原型网络对查询编码的梯度中，含h的项为何消失？","change":"补充负平方距离logit导数及概率残差求和为零的中间步骤；核查后保持原梯度公式不变。","verification":"完整分段阅读307行并补读末段及接缝；按链式法则重新求和得到2/tau乘以(概率加权原型减真类原型)，原公式正确；原型侧导数也一致。"}
+{"chapter":"chapters\\11b-continual.tex","round":5,"reader_question":"投影、参数重要性和遗忘矩阵的数字能独立算回吗？","change":"无新增：已有手算覆盖各机制，避免重复扩写。","verification":"续接1—55行阅读，完整读56—227行并补读截断章尾；投影(0,2)、EWC折中0.5、ACC约0.783、遗忘0.125均吻合。"}
+{"chapter":"chapters\\11c-active.tex","round":5,"reader_question":"熵、模拟风险、梯度嵌入和标注噪声例子是否算对？","change":"无新增：现有算例具备输入、步骤和解释。","verification":"完整分段读全章并补读截断章尾；BALD约0.368、EER为0.02、覆盖先9后2、噪声输出(0.74,0.26)均核算一致。"}
+{"chapter":"chapters\\12-federated.tex","round":5,"reader_question":"平均参数、近端更新与压缩残差能否逐步复算？","change":"无新增：保留现有算例。","verification":"完整分段读全章；聚合0.1、本地极小点平均1与全局最优1.5、FedProx第二步0.32、残差守恒及裁剪(1.2,1.6)均一致。"}
+{"chapter":"chapters\\13-manifold.tex","round":5,"reader_question":"图距离、负重构权重、图能量及扩散距离的例子是否混淆？","change":"无新增：例子已清楚展示不同保留对象。","verification":"完整分段读全章；核算图距离2、LLE权重(-0.5,1.5)、链图能量2与8、端点一步扩散距离0以及中点平滑值0.5，均正确。"}
+{"chapter":"chapters\\13b-meta.tex","round":5,"reader_question":"原型概率、元梯度、隐式解和后验方差能否复算？","change":"无新增：保留现有数值解释。","verification":"完整分段读全章；原型概率约0.982、元梯度-1、隐式驻点1、后验均值1与预测方差1.5、等权记忆读取均正确。"}

@@ -1,0 +1,229 @@
+﻿\chapter{持续学习}
+\label{chap:continual}
+\begin{quote}\small
+\textit{本章摘要。}持续学习把更新过程放到时间轴上，同时约束新知识获取、旧知识保持和资源增长。本章从增量设置出发，推导回放、梯度约束、参数正则和知识蒸馏，再比较隔离与扩展方法。评价对象是整个学习轨迹，而非最后一个任务。
+\end{quote}
+
+上一章研究如何借助源知识降低一个目标域的风险。实际系统却往往没有永久不变的“最终目标域”：新相机、新工况和新故障按时间到达，上一轮的目标域很快又成为需要保护的历史域。如果每次适应都只考核最新数据，系统可能一边发布更好的新版本，一边失去识别旧故障的能力。本章将学习对象从一个最终模型改为一串带资源约束的更新过程；因此，读者要问的不是“最后一次训练是否收敛”，而是“沿时间轴是否持续服务所有仍需服务的分布”。
+
+持续学习并非要求所有参数永远不变，而是要求区分有益的知识修正与不必要的历史破坏。旧数据能否保留、推理时是否知道任务身份、类别是否持续增加，会直接改变可用算法和评价标准。本章先说明回放如何近似历史风险，再从损失的局部变化推出梯度约束，从后验近似推出参数重要性惩罚，并解释蒸馏和参数隔离分别保留了什么。它们共同处理稳定性与可塑性的张力，但保护对象并不相同：样本风险、局部方向、参数邻域和可调用模块不能互相替代。
+
+每次更新以后，都要重新测一遍仍需服务的旧设备，记录哪些故障开始漏检。只看最后一个阶段的总分，会看不到中途丢失的能力。另一个实际困难是，新到的记录往往还没有标签，专家不可能逐条检查。下一章的主动学习讨论怎样挑选优先标注的记录，再把得到的标签交给更新算法。
+
+\section{数据流、任务边界与遗忘}
+
+% auxiliary-resource-guide
+本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.7cm and 0.65cm]
+ \node[idi input, minimum width=1.7cm] (d1) {$\mathcal D_1$};
+ \node[idi input, right=of d1, minimum width=1.7cm] (d2) {$\mathcal D_2$};
+ \node[idi input, right=of d2, minimum width=1.7cm] (d3) {$\mathcal D_3$};
+ \node[idi state, below=0.8cm of d2, minimum width=2.1cm] (model) {共享模型\\更新参数};
+ \node[idi output, below=0.8cm of d3, minimum width=2.1cm] (old) {旧任务性能\\可能下降};
+ \draw[idi arrow] (d1)--(model); \draw[idi arrow] (d2)--(model); \draw[idi arrow] (d3)--(model);
+ \draw[idi arrow] (model)--(old);
+ \draw[idi feedback] (old.south) .. controls +(0,-0.6) and +(0,-0.6) .. node[below,font=\scriptsize]{回放、蒸馏或参数隔离} (model.south);
+\end{tikzpicture}
+\caption{持续学习沿数据流更新模型；新任务的可塑性与旧任务的稳定性形成直接张力。}
+\label{fig:continual-stability-plasticity}
+\end{figure}
+图\ref{fig:continual-stability-plasticity}沿任务流展示更新过程，并将旧知识保持与新任务适应并列；评价更新效果时须同时检查历史任务和当前任务，不能只看新数据损失。
+设数据依次到达$\mathcal D_1,\ldots,\mathcal D_T$，学习第$t$阶段时通常无法完整访问历史数据。直接在新数据上继续优化会改变共享参数，旧分布风险可能增加，这就是灾难性遗忘的典型表现。持续学习的核心矛盾是可塑性与稳定性，而非单纯限制更新幅度\cite{delange2022continual}。
+
+任务增量通常在推理时提供任务身份，可选择相应输出头；类增量要求在已出现的所有类别中统一预测，测试时不提供任务身份；域增量通常保持标签空间而改变输入分布。类增量训练可以有已知阶段边界，不能把它与无边界数据流混为一谈。任务无关的在线持续学习进一步要求算法自行处理连续到达的数据，标签还可能延迟。
+
+\paragraph{先分清一条样本、一个任务和一个阶段。}
+例如一台电机连续记录振动，把一段互不重叠的时间窗提取成$x\in\R^d$，复检给出标签$y\in\{1,\ldots,K\}$，这一对$(x,y)$才是一条有标签样本。设备是产生记录的物理对象；任务是规定输入、标签含义和评价分布的预测问题；阶段$t$是允许更新的时间区间。一个阶段可以有多台设备，一台设备也可以经历多个阶段，三种编号不能混用。本章参数写作$\theta\in\R^p$，模型输出$K$类概率，损失$\ell_\theta(x,y)$是一个标量，例如真实类别概率为$0.8$时交叉熵为$-\log0.8$。梯度是损失对$p$个参数的偏导数组成的向量，更新$\theta\leftarrow\theta-\eta\nabla_\theta\ell$才是实际改变模型的步骤。
+
+\paragraph{为什么学新任务会影响旧任务。}
+用只有一个参数的例子，旧损失为$(\theta-1)^2/2$、新损失为$(\theta+1)^2/2$。旧任务训练到$\theta=1$后，新损失梯度为$2$；步长$\eta=1/2$使参数变为$0$，新损失从$2$降为$1/2$，旧损失却从$0$升为$1/2$。两个任务争用同一个参数，因而只优化当前损失不足以保留历史能力。真实网络不一定如此直接冲突，但也没有自动保存旧功能的机制。若标签定义本身被纠正，则旧测试标准也应按预定规则重审，不能把坚持错误旧标签当作成功保持。
+
+\section{经验回放与梯度约束}
+\paragraph{有限缓存如何近似历史风险。}
+经验回放保存大小为$M$的缓存$\mathcal B$，每次从当前数据与缓存分别采样：
+\begin{equation}
+ \mathcal L_t=\frac1{|B_t|}\sum_{(x,y)\in B_t}\ell_\theta(x,y)
+ +\lambda\frac1{|B_m|}\sum_{(x,y)\in B_m}\ell_\theta(x,y).\label{eq:continual-replay-objective}
+\end{equation}
+先混合计算梯度并更新模型，再按既定策略更新缓存。蓄水池采样在观察到第$n>M$个样本时，以$M/n$概率将其放入缓存，并均匀替换一个槽位，使历史每个样本有相同保留概率。类别均衡缓存则改变采样目标，保障少数类但不再保持原始频率。iCaRL 使用代表样本与蒸馏维护类增量表示，并以类均值进行预测\cite{rebuffi2017icarl}。
+
+\paragraph{把回放公式执行一次。}
+$\mathcal B$是跨轮保存的缓存，$B_m\subseteq\mathcal B$是本次抽取的旧样本小批，$B_t$是当前小批；这里的竖线表示集合大小（样本数），不是向量范数。若当前两条损失为$0.2,0.6$，回放两条为$0.1,0.3$，且$\lambda=2$，目标值为$0.4+2\times0.2=0.8$。更新时对这个加权和求导，不是把损失值直接从参数上减去。第一次还没有旧缓存时只计算当前项，不能除以$|B_m|=0$。容量$M=2$、已见两条记录时，第三条以$2/3$概率入选，入选后在两个槽位中各以$1/2$概率替换；所以每条旧记录被替换的概率为$1/3$。这说明随机替换与每次总删最旧记录是不同算法。
+
+\paragraph{缓存无偏性与风险权重不是同一件事。}
+设此前共观察到$n$个样本且缓存容量为$1\leq M\leq n$；$M=0$表示停用回放，不计算缓存均值。蓄水池采样的等概率性质可由归纳法证明：第$n$个新样本的入选概率是$M/n$；任一旧样本在$n-1$时刻位于缓存的概率为$M/(n-1)$，本轮被替换的条件概率为$(M/n)(1/M)=1/n$。所以它本轮后仍在缓存的概率为
+\begin{equation}
+ \frac{M}{n-1}\left(1-\frac1n\right)=\frac Mn.
+\end{equation}
+初始$n=M$时所有样本都被保留，归纳因此成立。对固定参数$\theta$，缓存平均损失对采样随机性取期望等于历史经验平均损失：
+\begin{equation}
+ \E_{\mathcal B}\left[\frac1M\sum_{i\in\mathcal B}\ell_\theta(x_i,y_i)\right]
+ =\frac1M\sum_{i=1}^n\frac Mn\ell_\theta(x_i,y_i)
+ =\frac1n\sum_{i=1}^n\ell_\theta(x_i,y_i).
+\end{equation}
+这是固定函数的抽样性质，不表示在同一缓存上反复优化后，所选模型的缓存分数仍是无偏泛化估计；模型会适应缓存，所以还需要固定的历史测试集。
+
+此外，式\eqref{eq:continual-replay-objective}的训练目标除以$1+\lambda$后对应新数据权重$1/(1+\lambda)$与历史权重$\lambda/(1+\lambda)$。若真要拟合所有已见样本的等权经验风险，当前阶段有$n_t$个样本、历史有$n_{old}$个样本时，应取$\lambda=n_{old}/n_t$，并确保两侧批次各自代表相应经验分布。整体除以$1+\lambda$不改变极小点，却会把梯度缩小同样倍数；对于无额外梯度变换的普通梯度下降，归一化后把学习率相应放大才能保持同一步更新；带自适应缩放、梯度裁剪或独立权重衰减的优化器不能直接套用这一等价关系。固定$\lambda$实际是在规定新旧风险的政策权重，而不是自动复现全历史训练。对逐渐变化的设备，近期分布优先也许更合理，但必须说明这是主动选择的目标。
+
+缓存按样本数公平并不等于按字节公平：原图、压缩特征与 logits 占用不同。特征回放节省空间，却依赖编码器版本兼容；生成回放用生成器代替原样本，但生成器本身也会遗忘，偏差可能逐阶段累积\cite{shin2017replay}。保存合成样本也不能自动免除隐私审计。
+
+\paragraph{梯度情景记忆（Gradient Episodic Memory，GEM）与 A-GEM。}
+GEM 将当前梯度$g$投影为与旧任务梯度$g_k$不冲突的方向\cite{lopezpaz2017gem}：
+\begin{equation}
+ \min_{\tilde g}\frac12\|\tilde g-g\|_2^2,
+ \qquad \tilde g^{\mathsf T}g_k\geq0\quad\text{对所有旧任务 }k.
+\end{equation}
+因为梯度下降的旧损失一阶变化约为$-\eta g_k^{\mathsf T}\tilde g$，该约束限制局部增损，而非保证有限步后的旧风险不升。A-GEM 用回放批次的平均参考梯度$g_r$替代全部约束\cite{chaudhry2019agem}。若$g^{\mathsf T}g_r<0$且$\|g_r\|>0$，投影为
+\begin{equation}
+ \tilde g=g-\frac{g^{\mathsf T}g_r}{\|g_r\|_2^2}g_r;
+\end{equation}
+否则保留原梯度。它降低计算开销，但只约束平均回放方向，少数旧任务仍可能受损。
+
+\paragraph{从约束优化推出投影及其步长限制。}
+令参数维度为$p$，$g,g_r,\tilde g\in\R^p$。单个约束的拉格朗日函数为
+\begin{equation}
+ \mathcal J(\tilde g,\alpha)=\tfrac12\|\tilde g-g\|^2-\alpha g_r^\top\tilde g,
+ \qquad\alpha\geq0.
+\end{equation}
+驻点条件给出$\tilde g=g+\alpha g_r$。当$g^\top g_r\geq0$时约束已满足，$\alpha=0$；否则最优点位于边界$g_r^\top\tilde g=0$，故$\alpha=-g_r^\top g/\|g_r\|^2$，代回即得 A-GEM 公式。若$g_r=0$，该一阶约束没有信息，不应执行除法。对于$K_{\mathrm{old}}$个旧任务，把梯度写成矩阵$G=[g_1,\ldots,g_{K_{\mathrm{old}}}]\in\R^{p\times K_{\mathrm{old}}}$；这里旧任务数不同于类别数$K$。此时$\alpha\in\R^{K_{\mathrm{old}}}$为逐任务的非负乘子向量，同样有$\tilde g=g+G\alpha$，对偶问题成为
+\begin{equation}
+ \min_{\alpha\geq0}\ \tfrac12\alpha^\top G^\top G\alpha+\alpha^\top G^\top g.
+\end{equation}
+这把高维参数空间中的投影转换为以旧任务数为变量数的二次规划，但需要计算和保存参考梯度。
+
+即使投影精确，有限步长仍可能增加旧损失。若旧损失梯度为$L_k$-Lipschitz，则
+\begin{equation}
+ \mathcal L_k(\theta-\eta\tilde g)
+ \leq\mathcal L_k(\theta)-\eta g_k^\top\tilde g
+ +\tfrac12L_k\eta^2\|\tilde g\|^2.
+\end{equation}
+约束仅保证一次项不为正；当内积恰好为零时，二次项仍允许增损。当内积严格为正且梯度确实来自该损失时，$\eta\leq2g_k^\top\tilde g/(L_k\|\tilde g\|^2)$才给出这个上界下的非增条件。实际使用的是小缓存梯度，既有抽样误差又有曲率误差，因此仍须检查历史风险。若优化器再对投影梯度施加动量或自适应预条件，实际更新方向也可能不再满足约束；约束应针对实际步向量解释。
+
+\paragraph{手算一次梯度投影。}
+取$g=(-1,2)^{\mathsf T}$、$g_r=(1,0)^{\mathsf T}$，内积为$-1$。原始下降步为$-\eta g=(\eta,-2\eta)^{\mathsf T}$，旧损失的一阶变化为$+\eta$，所以发生冲突。投影后$\tilde g=(-1,2)^{\mathsf T}-(-1)(1,0)^{\mathsf T}=(0,2)^{\mathsf T}$，内积变为零，只去掉冲突分量。注意算法投影的是梯度，执行时仍要取负号；把约束误写成梯度内积小于零，会恰好鼓励旧损失上升。
+
+\section{参数重要性与知识蒸馏}
+\paragraph{Elastic Weight Consolidation (EWC) 及其在线变体。}
+EWC 将旧任务后验在最优参数附近近似为对角二次项\cite{kirkpatrick2017ewc}：
+\begin{equation}
+ \mathcal L_t(\theta)=\mathcal L_{new}(\theta)
+ +\frac\lambda2\sum_jF_j(\theta_j-\theta_j^*)^2,
+ \quad
+ F_j\approx\frac1N\sum_n[\partial_{\theta_j}\log p_{\theta^*}(y_n\mid x_n)]^2.
+\end{equation}
+先训练旧阶段、保存$\theta^*$并估计$F$，再在新阶段加入惩罚。经验 Fisher 使用观测标签，和对模型预测分布取期望的 Fisher 并不完全相同。对角近似忽略参数耦合，旧任务局部曲率也未必能描述大范围更新风险。在线变体将历史重要性按衰减系数累积为一个统计量，控制内存，但衰减速度决定更早知识被保留多少。
+
+\paragraph{从贝叶斯递推到对角二次保护。}
+若给定参数后各阶段数据条件独立，后验满足
+\begin{equation}
+ p(\theta\mid\mathcal D_{1:t})\propto p(\mathcal D_t\mid\theta)
+ p(\theta\mid\mathcal D_{1:t-1}).
+\end{equation}
+对旧后验的负对数$V(\theta)$在局部极小点$\theta^*$二阶展开，若梯度为零，有
+\begin{equation}
+ V(\theta)\approx V(\theta^*)+\tfrac12(\theta-\theta^*)^\top H(\theta-\theta^*),
+ \qquad H=\nabla^2V(\theta^*).
+\end{equation}
+这里$H\in\R^{p\times p}$，完整存储需要$O(p^2)$。EWC 用似然 Fisher 的对角近似作为局部精度信息，忽略参数间相关性后只需$O(p)$存储。模型 Fisher 的定义为
+\begin{equation}
+ F=\E_{X}\E_{Y\sim p_{\theta^*}(\cdot\mid X)}[s(X,Y)s(X,Y)^\top],
+ \qquad s=\nabla_\theta\log p_{\theta^*}(Y\mid X).
+\end{equation}
+在可交换微分和积分等正则条件下，模型分布内的 Fisher 等于负对数似然 Hessian 的期望；把模型标签换为观测标签得到的是经验 Fisher，不必等于实际损失 Hessian。若新损失采用样本平均而旧后验来自样本似然之和，还要计入样本量尺度；实践中的$\lambda$同时承担尺度转换与保持强度调节，不能把任意$\lambda$都当作精确贝叶斯更新。
+
+二次惩罚对第$j$个参数的梯度为$\lambda F_j(\theta_j-\theta_j^*)$。在单个坐标上，若新目标局部为$\tfrac12a(\theta_j-b)^2$，$a>0$，则合并后的极小点为
+\begin{equation}
+ \theta_j^{new}=\frac{ab+\lambda F_j\theta_j^*}{a+\lambda F_j}.
+\end{equation}
+这明确展示了折中：新证据曲率$a$越强，参数越靠近$b$；旧重要性越强，越靠近$\theta_j^*$。但两个参数可能需要协同移动才能不改变旧函数，对角惩罚看不到这种安全方向。在线累积$\bar F_t=\rho\bar F_{t-1}+F_t$还应同时说明锚点如何重置；把多阶段局部曲率压缩到最新锚点，是进一步近似，不等于保留所有历史后验。
+
+Synaptic Intelligence 沿训练轨迹累计参数更新对损失下降的贡献，再按总位移归一化估计重要性\cite{zenke2017si}。例如令一次参数增量为$\Delta\theta_j^{(s)}$、更新前梯度为$g_j^{(s)}$，可累计$\omega_j=\sum_s-g_j^{(s)}\Delta\theta_j^{(s)}$，再以$\Omega_j=\max(0,\omega_j)/((\theta_j^{end}-\theta_j^{start})^2+\epsilon)$作为非负重要性的一种实现约定。分子来自一阶损失下降的逐坐标贡献，分母避免仅因坐标位移较大就给出高重要性；$\epsilon>0$防止小位移导致数值爆炸。噪声、动量和坐标间耦合会使逐坐标贡献不稳定，因此需记录截断与累积约定。它与 EWC 的区别是使用优化路径而非阶段末的 Fisher。两者都可能在任务冲突较强时过度限制可塑性，因此要同时报告新任务学习不足与旧任务遗忘。
+
+\paragraph{参数重要性可以怎样直观核算。}
+在上面的一维折中式中，取$a=1,b=-1,\theta_j^*=1,\lambda F_j=3$，新最优参数为$(-1+3)/4=1/2$，处于新旧偏好之间。$F_j$大不是说参数数值大，而是旧预测对该坐标变化敏感；即使$\theta_j^*=0$也可能很重要。$\lambda F_j=0$时完全服从新目标，趋于无穷时近乎冻结，这两端分别可能遗忘旧任务和学不会新任务。Synaptic Intelligence 中若梯度为$2$、本次位移为$-0.1$，一阶下降贡献为$-2(-0.1)=0.2$；它记录的是沿路径的贡献，与只在末点计算的 Fisher 不是同一统计量。
+
+\paragraph{输出蒸馏与特征保持。}
+Learning without Forgetting 保存旧模型输出，在新数据上约束新模型\cite{li2017lwf}：
+\begin{equation}
+ \mathcal L=\mathcal L_{new}+\lambda\tau^2
+ \E_x\KL(p_{old}^{(\tau)}(\cdot\mid x)\|p_\theta^{(\tau)}(\cdot\mid x)).
+\end{equation}
+温度$\tau$软化类别概率，旧教师应停止梯度更新。蒸馏只能约束所观察输入上的行为；若新输入不覆盖旧分布，保持这些输出不保证保持旧任务。类增量场景还需统一输出空间并处理新旧类别的偏置。特征蒸馏可约束中间表示，但应明确对齐层、距离和容量，否则会阻碍必要的表示变化。
+
+\paragraph{蒸馏温度、梯度缩放与类增量缺口。}
+令旧教师与新学生在相同$K$个旧类别上的 logits 分别为$u,v\in\R^K$，$p_k=\softmax(u/\tau)_k$、$q_k=\softmax(v/\tau)_k$。停止教师梯度后，$\KL(p\|q)=\sum_kp_k\log p_k-\sum_kp_k\log q_k$中的第一项为常数，所以
+\begin{equation}
+ \frac{\partial\KL(p\|q)}{\partial v_j}=\frac{q_j-p_j}{\tau},\qquad
+ \frac{\partial[\tau^2\KL(p\|q)]}{\partial v_j}=\tau(q_j-p_j).
+\end{equation}
+较高温度下，令$\bar u=K^{-1}\sum_ku_k$、$\bar v$同理，有$p_k\approx K^{-1}+(u_k-\bar u)/(K\tau)$，故$q_k-p_k$本身约为$1/\tau$量级。乘$\tau^2$使高温近似下的梯度尺度不至于随温度平方衰减，主要约束中心化 logits 的相对差异；它不是对所有温度都精确保持梯度范数。
+
+类增量时必须说明 softmax 的归一化范围。如果只在旧类别上归一化，蒸馏保存旧类之间的相对关系，却不控制它们与新类之间的整体偏移；如果在全部类别归一化并把教师对新类概率设为零，就会额外压低新类概率，可能与新任务监督冲突。回放样本、分类校准和权重调节可以缓解，但不能省略这个输出空间选择。
+
+特征保持也有明确几何假设：若教师特征$h_o\in\R^{d_o}$、学生特征$h_n\in\R^{d_n}$维度不同，应通过映射$P\in\R^{d_o\times d_n}$再比较$\|Ph_n-h_o\|^2$，或比较关系结构；直接相减没有定义。可训练的$P$可能吸收一部分变化，过强的逐点保持则会限制新任务需要的表示重组。
+
+\paragraph{蒸馏保留的是答案分布，不是参数副本。}
+logit 指 softmax 之前的实数得分，并非概率；对$u=(2,0)$，温度$1$下概率约为$(0.881,0.119)$，温度$2$下约为$(0.731,0.269)$，次要类别更容易被看见。实际一步先用冻结教师对同一批输入算概率，再用学生算概率，组合监督损失与蒸馏损失后仅更新学生。这里$\KL(p\|q)=\sum_kp_k\log(p_k/q_k)$衡量两分布差异，不是两个类别标签的距离。教师若把新故障误判为正常，照搬其输出也会保留错误，因此蒸馏必须与新标签监督共同权衡。
+
+\section{参数隔离、扩展与混合策略}
+Progressive Networks 为新任务增加网络列，并通过横向连接复用旧表示，旧参数冻结以避免直接覆盖\cite{rusu2016progressive}。代价是参数随任务增长，并依赖任务路由。掩码方法为不同任务选择不同参数子集，容量耗尽后仍需要压缩或扩展。Adapter 和 LoRA 可以成为隔离模块，但只有旧模块被冻结且路由可靠时，才提供对应的保持机制。
+
+冻结模块只有在它实际被调用时才保护输出。设路由器为$r(x)$、旧任务$i$的固定专家为$f_i$，最终预测为$f_{r(x)}(x)$。对零一损失，记错误路由概率为$\epsilon_r$，旧专家单独使用时风险为$R_i$，则由事件的并集界有$R_{system,i}\leq\epsilon_r+R_i$。即使$R_i$完全不变，路由错误也足以损坏系统性能；若另有共享归一化统计或公共前处理被更新，冻结专家权重甚至不保证$f_i$这一函数不变。增加$T$个每个含$P_0$参数的专家通常需$O(TP_0)$存储，隔离是在保持与资源之间交换，不是免费消除遗忘。
+
+回放、蒸馏和隔离并不互斥。可用小缓存维持真实旧分布，用蒸馏保留相对类别信息，再通过新模块吸收变化。比较混合算法时必须同时限制缓存、模型参数、教师副本与训练计算，避免用更大资源获得的收益被误认为算法优势。
+
+\paragraph{如何选择并调用被隔离的模块。}
+输出头是把共享特征变成类别得分的最后一段网络；掩码是与参数同形状的零一开关，决定某任务使用哪些参数；路由器是决定调用哪个头或专家的规则。若生产系统已提供相机型号，可以按该元数据路由；若测试不提供任务身份，就必须从输入估计路由，不能用真实标签代选正确专家。Adapter 是插入主干的小型可训练模块，LoRA 以低秩矩阵乘积表示权重增量；二者只是节约任务专用参数的方式，仍须冻结对应旧路径以及其前处理。选择混合策略时应先问能否存旧数据、能否知道任务身份、最多能增加多少参数，再确定保护对象，而不是默认把所有方法相加就最好。
+
+\section{评价矩阵与工业更新规则}
+定义$A_{t,i}$为学习完阶段$t$后在任务$i$固定测试集上的性能，行对应学习时间，列对应测试任务。最终平均性能和平均遗忘为
+\begin{equation}
+ \mathrm{ACC}=\frac1T\sum_{i=1}^TA_{T,i},\qquad
+ F=\frac1{T-1}\sum_{i=1}^{T-1}
+ \left(\max_{i\leq t<T}A_{t,i}-A_{T,i}\right).
+\end{equation}
+遗忘量可以为负，表示最终性能超过此前最佳值；若采用截断为零的定义，应显式声明。后向迁移为
+\begin{equation}
+ \mathrm{BWT}=\frac1{T-1}\sum_{i=1}^{T-1}(A_{T,i}-A_{i,i}).
+\end{equation}
+前向迁移可比较学习任务$i$之前的$A_{i-1,i}$与未迁移基线，但仅在输出空间与任务可访问性允许该测试时有意义\cite{lopezpaz2017gem}。类增量应同时测试所有已见类别，不能利用真实任务身份缩小候选集合。
+
+这些指标中的$A$默认越大越好，例如准确率或召回；若填入损失，需要相应反转差分方向。遗忘与后向迁移并不相反等价：若某旧任务初学得分为$0.70$，中期最高为$0.90$，最终为$0.80$，它的后向迁移为$+0.10$，但从历史最佳计算的遗忘仍为$0.10$。数值仅为解释定义的教学例。只报告最终平均性能可能同时掩盖某旧域崩溃与某新域改善，因此应保留完整矩阵、最差子群指标和新阶段初学性能；没有学会旧任务的模型也可能表现为“几乎不遗忘”。当$T=1$时，含$T-1$分母的指标不定义。
+
+\paragraph{从完整矩阵读出最终指标。}
+例如三阶段的下三角成绩可逐行写为
+\begin{align*}
+ (A_{1,1})&=(0.8),\\
+ (A_{2,1},A_{2,2})&=(0.7,0.9),\\
+ (A_{3,1},A_{3,2},A_{3,3})&=(0.6,0.85,0.9).
+\end{align*}
+未学任务的格子留空而非填零。最终平均性能为
+\begin{equation*}
+ \mathrm{ACC}=\frac{0.6+0.85+0.9}{3}\approx0.783.
+\end{equation*}
+前两任务遗忘分别为$0.8-0.6=0.2$和$0.9-0.85=0.05$，平均为$0.125$，后向迁移为$-0.125$。这里两者恰好互为相反数，是因为旧任务历史最佳都在初学时取得，不是一般规律。$0.2$表示二十个百分点的绝对下降，不是相对下降百分之二十。
+
+新相机按周接入时，应提前为每台相机固定测试集，每次更新后都在这些集合上填写评价矩阵。缓存不能混入测试样本，超参数也不能看到未来阶段的结果后反复修改。线上流程应先用当前模型预测，等工单或复检标签到达后再学习，并记录标签延迟、漂移响应时间、每阶段训练时长和累计存储。旧相机或安全关键缺陷一旦超过风险阈值，应回滚到已验收版本，而不是自动覆盖生产模型。
+
+\paragraph{自测与答案。}
+若某旧任务初学、历史最佳和最终准确率依次为$0.70,0.90,0.85$，其遗忘和后向迁移各是多少？答案：遗忘为$0.90-0.85=0.05$，后向迁移为$0.85-0.70=0.15$。二者可以同时为正，因为参照时刻不同。若只发生一个阶段，则本章的平均遗忘和后向迁移不定义，不能把分母为零的结果记成零。
+
+以下教程与讲解可用于复习持续学习设置，并组织回放、模块保存和遗忘评价实验。
+\section*{辅助学习材料}
+\begingroup
+\emergencystretch=3em
+\begin{itemize}
+\item \textbf{Avalanche: an End-to-End Library for Continual Learning}；作者/平台：ContinualAI；英文；开源框架教程。重点阅读 scenarios、benchmarks、replay plugins 和 continual evaluation，帮助把本章的任务流、缓存、类增量与遗忘矩阵转成可重复实验。\href{https://avalanche.continualai.org/}{在线文档}。
+\item \textbf{Saving and Loading Models}；作者/平台：PyTorch 官方教程；英文；代码教程。重点看 checkpoint、optimizer state 与模型版本保存，帮助组织本章的回放、蒸馏和参数隔离对照。\href{https://docs.pytorch.org/tutorials/beginner/saving\_loading\_models.html}{在线阅读}。
+\item \textbf{持续学习/终身学习/增量学习基础知识}；知乎；中文解说。区分任务增量、类增量与数据流设定；标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/696297033}{在线阅读}。
+\item \textbf{持续学习（Continual Learning）：让AI像人类一样终身成长}；CSDN；中文博客。比较回放与参数约束，同时检查旧任务遗忘和新任务学习；标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/daqianai/article/details/152846877}{在线阅读}。
+\item \textbf{2021 - 机器終身学习 (二) - 灾难性遗忘(Catastrophic Forgetting)}；李宏毅；bilibili；中文课程。选看第132集，对照本章序贯训练中的遗忘问题。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量；已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=132}{观看分集}。
+\end{itemize}
+\endgroup
+\paragraph{本章小结。}
+回放重建历史风险，梯度约束限制局部干扰，参数正则保存重要方向，蒸馏保存所观察输入上的函数行为，隔离减少共享参数冲突。这些保护机制各有缺口：缓存未必覆盖稀有旧故障，一阶约束不控制有限步长曲率，对角重要性忽略参数耦合，新输入上的蒸馏不保证旧输入行为，冻结模块还依赖正确路由。没有一种方法能够脱离任务身份、历史访问和资源预算单独比较。
+
+持续学习要逐阶段记录新旧任务的成绩。先列出仍需识别的设备和故障，再选择保留历史样本、约束重要参数，或保存独立模块。同时检查新任务是否学会：完全不更新当然不会因更新而遗忘，但也可能一直学不会新故障。现场还会受标注速度限制。回放与正则化解决拿到标签以后怎样更新，下一章的主动学习则决定有限的专家时间先花在哪些记录上。

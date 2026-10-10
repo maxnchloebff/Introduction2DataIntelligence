@@ -16,54 +16,58 @@
 
 ## 本书怎样组织内容
 
-当前主文档包含四部分、23 章。以下链接按实际编译顺序排列；章号由 LaTeX 自动生成，不等同于文件名前缀。
+当前主文档包含四部分、21 章。以下链接按实际编译顺序排列；文件名前缀与 LaTeX 自动生成的实际章号一致。
 
 ### 第一部分：机器学习的基本语言与完整流程
 
 先把问题、数据和评价方式说清楚，再讨论模型怎样训练、结果是否可信。
 
-1. [数学预备知识](./chapters/00-mathematical-preliminaries.tex)：线性代数、概率、导数、距离与降维。
-2. [机器学习基础](./chapters/01-foundations.tex)：样本、任务、模型、损失与风险。
-3. [经典模型](./chapters/01b-linear-models.tex)：线性回归、正则化、分类及其他常用方法。
-4. [学习流程](./chapters/02-learning-pipeline.tex)：数据划分、预处理、训练与评价。
-5. [优化与训练](./chapters/02b-optimization-training.tex)：梯度、反向传播和训练稳定性。
-6. [泛化](./chapters/03-generalization.tex)：训练误差、偏差与方差、分布变化。
-7. [统计学习](./chapters/03b-statistical-learning.tex)：复杂度、泛化分析、验证和校准。
-8. [数据工程](./chapters/03c-data-engineering.tex)：信息可用时间、缺失数据、特征与数据质量。
+1. [数学预备知识](./chapters/01-mathematical-preliminaries.tex)：线性代数、概率、导数、距离与降维。
+2. [机器学习基础](./chapters/02-foundations.tex)：样本、任务、模型、损失与风险。
+3. [线性回归实例](./chapters/03-linear-models.tex)：输入与标签、最小二乘、正则化、概率回归与贝叶斯参数建模。
+4. [学习流程](./chapters/04-learning-pipeline.tex)：数据划分、预处理、训练与评价。
+5. [优化与训练](./chapters/05-optimization-training.tex)：梯度、反向传播和训练稳定性。
+6. [统计学习](./chapters/06-statistical-learning.tex)：复杂度、泛化分析、验证和校准。
 
 ### 第二部分：贝叶斯机器学习
 
 用概率表达未知量，区分一次预测、预测分布和据此作出的决策。
 
-9. [贝叶斯学习与概率图模型](./chapters/04-bayesian.tex)：贝叶斯更新、状态与标签依赖、精确推断和近似推断。
-10. [参数化与非参数化方法](./chapters/05-parametric-nonparametric.tex)：近邻、核方法和高斯过程。
+7. [贝叶斯学习与概率图模型](./chapters/07-bayesian.tex)：贝叶斯更新、状态与标签依赖、精确推断和近似推断。
+8. [参数化与非参数化方法](./chapters/08-parametric-nonparametric.tex)：近邻、核方法和高斯过程。
 
 ### 第三部分：深度学习模型
 
 根据数据具有的时间、空间、语言或物理结构选择模型，而不是仅按模型名称记忆算法。
 
-11. [序列模型](./chapters/06-sequence.tex)：时间依赖、状态估计与序列预测。
-12. [视觉模型](./chapters/07-vision.tex)：图像表示、检测和分割。
-13. [大语言模型](./chapters/08-llm.tex)：语言建模、适配、生成和检索辅助问答。
-14. [多模态学习](./chapters/09-multimodal.tex)：不同观测之间的对齐与融合。
-15. [生成模型](./chapters/10-generative.tex)：潜变量、对抗学习、可逆变换和扩散生成。
-16. [物理信息神经网络](./chapters/10b-pinn.tex)：把观测与物理方程用于风场等连续场的重建。
+9. [序列模型](./chapters/09-sequence.tex)：时间依赖、状态估计与序列预测。
+10. [视觉模型](./chapters/10-vision.tex)：图像表示、检测和分割。
+11. [大语言模型](./chapters/11-llm.tex)：语言建模、适配、生成和检索辅助问答。
+12. [多模态学习](./chapters/12-multimodal.tex)：不同观测之间的对齐与融合。
+13. [生成模型](./chapters/13-generative.tex)：潜变量、对抗学习、可逆变换和扩散生成。
+14. [物理信息神经网络](./chapters/14-pinn.tex)：把观测与物理方程用于风场等连续场的重建。
 
 ### 第四部分：不同条件下怎样学习
 
 讨论数据如何到达、标注如何获得，以及已有知识怎样用于新设备、新工况和新任务。
 
-17. [预训练](./chapters/11a-pretraining.tex)。
-18. [迁移学习](./chapters/11-transfer.tex)。
-19. [持续学习](./chapters/11b-continual.tex)。
-20. [主动学习](./chapters/11c-active.tex)。
-21. [联邦学习](./chapters/12-federated.tex)。
-22. [流形学习](./chapters/13-manifold.tex)。
-23. [元学习](./chapters/13b-meta.tex)。
+15. [预训练](./chapters/15-pretraining.tex)。
+16. [迁移学习](./chapters/16-transfer.tex)。
+17. [持续学习](./chapters/17-continual.tex)。
+18. [主动学习](./chapters/18-active.tex)。
+19. [联邦学习](./chapters/19-federated.tex)。
+20. [流形学习](./chapters/20-manifold.tex)。
+21. [元学习](./chapters/21-meta.tex)。
 
 ## 建议怎样阅读
 
-**第一次系统学习**：按目录顺序读。每章先看导读，弄清要解决什么问题；读公式时检查假设、符号和维度；最后用章末总结回顾结论与限制。
+**第一次系统学习**：先读前言中的设备预测例子，分清输入、标签、参数、训练、预测和决策，再按目录顺序读。每章先看要解决什么问题，再用正文中的小规模算例对照公式；不要只背结论。读完一节后，尝试不看公式说明输入是什么、每一步计算做了什么、输出能支持什么判断。不能解释的地方应回到对应定义和算例，而不是靠章末外部链接补齐正文。
+
+**分两层读公式**：第一遍先掌握对象、输入输出和使用条件；第二遍检查符号、维度、中间推导与数值结果。较长推导不必一次记住，但不能把“暂时跳过推导”理解为结论无条件成立。不同章节的训练目标、数据可用时刻和评价对象可能不同，不能直接移用某一章的高分。
+
+可读性修订的范围是主文档实际收录的23章及前言，按“初学者提出具体疑问—正文补充解释—再次核对算例与理解障碍”的方式逐章处理。在首轮修订基础上，又对23章分别进行了10轮审阅，共230个有效章节轮次；发现阅读覆盖不足的记录已单独补做并替代，不重复计数。十轮分别侧重先修与动机、术语、符号维度、推导步骤、算例、反例与边界、训练和推理操作、章节衔接、练习答案、完整复读及重复内容精简，不以机械增加篇幅作为完成标准。
+
+上述23章、230轮及下文辅助材料的数量是此前版本的修订记录，不代表当前主文档的章节数量。未被主文档引入的历史稿和附加材料保存在 [chapters/archive/](./chapters/archive/)，不属于当前21章正文，未自动合并进正文。模拟读者复查不能替代真实读者的试读反馈；本次未重新验证外部学习资源链接及其统计信息。
 
 **已经有实际任务**：先阅读第一部分，确定输入、目标、数据划分和评价指标，再进入对应章节。例如：
 
@@ -87,7 +91,8 @@
 
 - [main.tex](./main.tex)：书名、前言、四部分结构、章节顺序和结语。
 - [preamble.tex](./preamble.tex)：宏包、页面设置、数学命令、定理环境和绘图样式。
-- [chapters/](./chapters/)：各章 LaTeX 源文件。
+- [chapters/](./chapters/)：按实际章号命名的21章 LaTeX 源文件。
+- [chapters/archive/](./chapters/archive/)：未收录的历史稿和附加材料，不使用正文章号。
 - [references.bib](./references.bib)：参考文献数据库。
 - [main.pdf](./main.pdf)：编译生成的完整教材。
 
@@ -110,7 +115,7 @@
 在项目根目录运行：
 
 ```powershell
-latexmk -xelatex -interaction=nonstopmode -halt-on-error main.tex
+latexmk -xelatex -synctex=1 -interaction=nonstopmode -halt-on-error main.tex
 ```
 
 成功后打开 [main.pdf](./main.pdf)。latexmk 会按需要多次编译，以更新公式、图表、章节和参考文献的编号。
@@ -118,10 +123,10 @@ latexmk -xelatex -interaction=nonstopmode -halt-on-error main.tex
 如果没有安装 latexmk，也可以依次运行：
 
 ```powershell
-xelatex -interaction=nonstopmode -halt-on-error main.tex
+xelatex -synctex=1 -interaction=nonstopmode -halt-on-error main.tex
 bibtex main
-xelatex -interaction=nonstopmode -halt-on-error main.tex
-xelatex -interaction=nonstopmode -halt-on-error main.tex
+xelatex -synctex=1 -interaction=nonstopmode -halt-on-error main.tex
+xelatex -synctex=1 -interaction=nonstopmode -halt-on-error main.tex
 ```
 
 手动编译时，如果某一步失败，应先解决错误再继续。不要只运行一次 XeLaTeX 就判断引用是否完整。
