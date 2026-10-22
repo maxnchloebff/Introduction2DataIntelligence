@@ -138,10 +138,11 @@ $S$的第$i$行列出图像$v_i$与全部文本的得分，第$j$列列出文本
 上述“正配对”指数据中对应的图文，与工件“正常”或“故障”的业务标签没有关系。批内其他组合被用作负候选。若打乱样本顺序，配对索引也须同步调整；否则对角线不再指向正确文本，损失就会训练错误关系。
 
 单行损失还说明优化怎样改变得分。设$\ell_i=-\log P_{v\to t}(i\mid i)$，展开对数后对$S_{ij}$求导：
-\begin{gather}
+\begin{align}
  \ell_i=-S_{ii}+\log\sum_{k=1}^N e^{S_{ik}},\\
  \frac{\partial\ell_i}{\partial S_{ij}}
- &=P_{v\to t}(j\mid i)-\mathbf1_{j=i}.\label{eq:multimodal-clip-score-gradient}
+ &=P_{v\to t}(j\mid i)-\mathbf1_{j=i}.
+ \label{eq:multimodal-clip-score-gradient}
 \end{align}
 $\mathbf1_{j=i}$在$j=i$时为一，其他情况为零。若得分可独立调整，梯度下降会提高目标得分、降低其余得分。实际得分共享编码器参数，一次更新汇总所有行列的梯度，不能保证每个组合都单独按这个方向变化。
 
