@@ -1,209 +1,443 @@
 \chapter{迁移学习}
 \label{chap:transfer}
 \begin{quote}\small
-\textit{本章摘要。}迁移学习利用已有数据、表示或参数降低目标任务的学习成本。本章先区分任务变化与分布偏移，再从风险重加权、表示对齐和参数适配推导主要算法，最后讨论测试时适配与负迁移。选择依据是哪些假设仍成立，而不是预训练模型有多大。
+\textit{本章摘要。}迁移学习研究如何把源域中已经获得的数据、表示或参数用于目标域，以减少目标标签、训练时间或计算资源。本章先说明迁移学习的对象和历史分工，再区分任务适配、领域适配与领域泛化。随后从偏移假设出发，推导重要性加权、统计对齐和域对抗方法，最后讨论微调、Adapter、LoRA、测试时适配、负迁移及评价协议。
 \end{quote}
 
-上一章把大量历史观测压缩成一个可复用的编码器，但“可复用”只是潜力，不是新设备上的性能承诺。旧相机学到的边缘结构可能仍然有用，照明统计可能需要更新，而不同产品的缺陷定义甚至可能不再相同。本章因此从参数初始化走向目标风险：不是询问源模型有多强，而是询问源数据中的哪些关系在目标环境中仍成立。
+本章主要参考 Jiang、Shu、Wang 和 Long 的综述\textit{Transferability in Deep Learning: A Survey}（2022），采用其中“预训练获取知识、适配利用知识、评价检验迁移”的区分。\footnote{Junguang Jiang, Yang Shu, Jianmin Wang, Mingsheng Long. \textit{Transferability in Deep Learning: A Survey}. 2022. arXiv:2201.05867。本文使用项目所附的 2022 年版本，\href{https://arxiv.org/abs/2201.05867}{公开版本入口}。}综述把统计匹配与域对抗作为深度领域适配的主要机制。本章选取其中适合初学者推导的方法，并补充偏移假设、低秩适配与部署评价。领域泛化是与适配有关但信息条件不同的设置，不作为所有迁移问题的共同前提。
 
-这里存在三种不同的干预。若预测关系不变而采样频率改变，可重加权样本。若不同观测方式背后存在共享语义，可尝试对齐表示。若目标任务需要新的决策规则，则必须更新分类头或部分骨干。三种干预对应不同假设，不能把它们看成可互换的技巧。本章先推导风险如何从源分布转换到目标分布，再解释统计对齐与域对抗到底消除了什么差异，随后讨论有限标签与计算预算下的参数适配，并用负迁移说明这些方法的边界。
+第\ref{chap:pretraining}章说明预训练如何产生可复用的编码器。预训练参数只是一种可利用的资源，它不保证在新设备、新任务或新类别上仍然有效。本章回答一个更具体的问题：当数据产生环境或预测目标发生变化时，哪些源知识可以安全地使用，怎样使用，怎样判断迁移确实降低了目标风险？这一问题也是迁移学习综述所说的可迁移性（transferability）问题\cite{pan2010transfer}。
 
-假设两台相机的图像颜色变得更接近了，还要检查裂纹和正常纹理是否仍能区分。对齐指标下降，只说明某种分布差异缩小，不能直接说明目标设备上的故障更容易识别。章末再考虑连续更新：用新设备数据改好模型后，旧设备上的故障还能不能识别？下一章的持续学习就从这里开始。
+设旧相机拍摄的缺陷图像很多，新相机只有少量标注。旧模型可能已经学会边缘和纹理。新相机的亮度分布可能不同，缺陷类别也可能增加。如果把所有差异都称为“域偏移”，就无法决定应当调整样本权重、表示还是输出头。本章按“问题—对象—假设—机制—局限—评价”的顺序建立这一区分。第\ref{chap:continual}章将继续讨论目标数据还会按时间到达时，如何适配新情况并保持旧能力。
 
-\section{源域知识与目标域风险}
+\section{迁移问题与知识来源}
 
-% auxiliary-resource-guide
-本章末的“辅助学习材料”列出与核心方法对应的讲解和实践入口，可在阅读相关推导后，按所列小节对照学习。
+\subsection{预训练与适配的分工}
+迁移学习通常包含两个阶段。预训练（pre-training）在上游数据和上游任务上学习参数或表示。适配（adaptation）把这些参数或表示用于下游任务，必要时用目标数据更新它们。综述中的两阶段图景如图\ref{fig:transfer-lifecycle}所示。预训练追求对许多下游任务都有用的通用可迁移性。适配针对一个具体任务或一个具体目标域，追求在当前条件下的目标风险下降。两者可以由同一个训练过程连接，但训练目标和评价对象仍然不同。
 
 \begin{figure}[htbp]
 \centering
-\begin{tikzpicture}[node distance=0.75cm and 0.7cm]
- \node[idi input, minimum width=2.0cm] (source) {源域\\$P_s(X,Y)$};
- \node[idi process, right=of source, minimum width=2.0cm] (repr) {共享表示\\$F_\theta(X)$};
- \node[idi output, right=of repr, minimum width=2.0cm] (target) {目标域\\$P_t(X,Y)$};
- \node[idi state, below=0.8cm of repr, minimum width=2.3cm] (adapt) {重加权、对齐\\或参数适配};
- \draw[idi arrow] (source)--(repr); \draw[idi arrow] (target)--(repr);
- \draw[idi arrow] (source)--(adapt); \draw[idi arrow] (target)--(adapt);
- \draw[idi feedback] (adapt)--(repr);
+\begin{tikzpicture}[node distance=0.65cm and 0.65cm]
+\node[idi input,text width=2.1cm] (up) {上游数据\\有标签或无标签};
+\node[idi process,text width=2.1cm,right=of up] (pre) {预训练\\学习 $\theta_0$};
+\node[idi state,text width=2.1cm,right=of pre] (model) {可复用模型\\$f_{\theta_0}$};
+\node[idi input,text width=2.1cm,below=of model] (target) {目标数据\\有标签或无标签};
+\node[idi process,text width=2.1cm,left=of target] (adapt) {适配\\更新部分参数};
+\node[idi output,text width=2.1cm,left=of adapt] (eval) {目标测试\\$R_t$};
+\draw[idi arrow] (up)--(pre)--(model);
+\draw[idi arrow] (model)--(adapt);
+\draw[idi arrow] (target)--(adapt);
+\draw[idi arrow] (adapt)--(eval);
 \end{tikzpicture}
-\caption{迁移学习的核心是把源域知识送入目标域，同时检验哪些分布或任务假设仍然成立。}
+\caption{预训练与适配的生命周期。箭头表示数据或模型参数进入下一阶段。目标测试标签只用于最终评价，不参与适配。}
+\label{fig:transfer-lifecycle}
+\end{figure}
+
+预训练和迁移不是同义词。监督预训练、自监督预训练和领域继续预训练都描述参数如何先被学习。迁移学习描述这些参数如何被复用以及复用后是否改善目标任务。冻结编码器只训练新头、全量微调和低秩更新都是适配操作。第\ref{chap:pretraining}章中的编码器 $f_{\theta_0}$ 是本章的一个输入，而不是本章的结论。
+
+\subsection{技术由来与迁移条件}
+迁移学习的动因是逐个任务重新收集标签和训练模型的成本。早期统计方法已经研究训练样本与实际应用人群不同的问题。重要性加权通过改变样本贡献来修正采样偏差，核方法则在特征空间比较分布\cite{huang2007kmm}。这些方法说明，利用源知识可以从数据层面开始，不要求先有一个大型预训练网络。
+
+深度表示学习使知识复用的位置发生了变化。监督视觉预训练把源类别识别中学到的特征用于检测等下游任务，自监督和语言建模又把预训练信号扩展到无标签数据。第\ref{chap:pretraining}章已经解释这些训练信号。本章关心训练结束之后的复用。源任务的输出头往往需要替换，骨干参数则可以冻结或微调。预训练与适配因而成为常见分工，但迁移学习在概念和方法上都早于这种深度训练流程\cite{pan2010transfer}。
+
+这种分工留下两个不同困难。有目标标签时，需要控制目标拟合与可训练容量之间的取舍。没有目标标签时，仍然需要解释为什么源域的标签可以用于目标域。统计对齐和域对抗主要回应第二个困难\cite{long2015dan,ganin2016dann}。大型骨干又增加了保存和训练每个目标版本的代价，Adapter 与 LoRA 进一步限制目标专用参数\cite{houlsby2019adapter,hu2021lora}。这些机制可以组合，不能仅按模型年代替代对数据条件的检查。
+
+\subsection{域、任务与分布}
+设输入空间为 $\mathcal X$，标签空间为 $\mathcal Y$。一个任务规定输入要预测的对象、输出空间及损失函数。用 $f:\mathcal X\to\mathcal Y$ 表示理想的标注关系。一个域还包括数据产生环境和联合分布。源域记为 $\mathcal D_s$，目标域记为 $\mathcal D_t$，其联合分布分别为 $P_s(X,Y)$ 和 $P_t(X,Y)$。这里 $X$ 是随机输入，$Y$ 是随机标签。
+
+任务适配（task adaptation）利用预训练模型和目标训练数据学习下游预测器。上游和下游可以有不同标签含义、标签空间或损失。例如从物体分类预训练转到缺陷严重度预测，需要新的回归头。任务适配也可以沿用原来的标签集合，名称不要求标签空间一定改变。综述中的这一设置主要提供预训练参数与带标签目标数据，不默认能重新访问全部上游数据。
+
+领域适配（domain adaptation，DA）主要研究同一预测任务跨分布复用的问题，例如在不同相机或工厂上识别同样的缺陷。无监督领域适配（unsupervised domain adaptation，UDA）提供带标签源数据和无标签目标输入。半监督领域适配还提供少量目标标签。这些术语中的“无监督”或“半监督”描述目标域标签条件，源域通常仍有监督。
+
+领域泛化（domain generalization，DG）要求模型在训练时没有见过的目标域上工作。它不能用目标输入估计密度比或目标统计量。常见训练条件是多个带标签源域，以及这些域之间存在可共享预测关系的假设。单源领域泛化还需要其他可解释的变化假设。对未见域的有效性必须通过留出整个环境的评价来检查。
+
+这三者描述信息条件和目标，不是互斥的网络架构。一个模型可以先经过任务适配，再在目标无标签输入上做领域适配。若训练已经使用了目标域的无标签记录，该试验就不能同时声称检验了训练时完全未见该域的领域泛化。
+
+图\ref{fig:transfer-source-target}以训练时的信息可见性比较三种设置。相同的网络和微调操作，在不同数据权限下属于不同实验。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.6cm,font=\small]
+\node[idi input,text width=3.5cm] (ta) {预训练参数 $\theta_0$\\目标标签与输入};
+\node[idi process,text width=3.3cm,right=of ta] (tao) {任务适配\\学习目标预测器};
+\node[idi input,text width=3.5cm,below=of ta] (da) {带标签源数据\\无标签目标输入};
+\node[idi process,text width=3.3cm,right=of da] (dao) {无监督领域适配\\利用当前目标统计};
+\node[idi input,text width=3.5cm,below=of da] (dg) {一个或多个源域\\目标输入训练时不可见};
+\node[idi process,text width=3.3cm,right=of dg] (dgo) {领域泛化\\检验未见环境};
+\draw[idi arrow] (ta)--(tao);
+\draw[idi arrow] (da)--(dao);
+\draw[idi arrow] (dg)--(dgo);
+\end{tikzpicture}
+\caption{三种迁移相关设置的典型训练信息。箭头表示可用信息进入学习过程。前两种可以使用相同的预训练骨干，无监督领域适配还可以同时利用源域标签和目标输入。领域泛化的目标域整体留出。}
 \label{fig:transfer-source-target}
 \end{figure}
-图\ref{fig:transfer-source-target}将源域知识、适配过程和目标域评价分开。共享参数并不意味着分布相同，目标域验证必须检验迁移后是否降低了实际风险。
-设源域与目标域联合分布分别为$P_s(X,Y)$与$P_t(X,Y)$，目标是降低$R_t(f)=\E_{P_t}\ell(f(X),Y)$。迁移学习允许域或任务发生变化，领域自适应通常保持预测任务并处理域差异，领域泛化则要求在训练时未见的域上工作\cite{pan2010transfer}。新相机质检可保持缺陷类别不变，跨产品迁移却可能改变标签空间。二者不能使用同一适配规则。
 
-读到风险与密度比时，可先把期望看成按出现概率加权的平均损失。后文的两工况例子先用有限个数说明这个平均如何改变，再推广到积分。使用迁移方法前还要列明手头有什么：源标签、预训练参数、目标无标签输入和目标标签是四种不同资源，不能默认全部可用。
+同一设备不必构成一个任务。同一任务也可能由多个域产生。测试时是否提供设备型号、域标识或任务标识，会改变预测问题。若模型实际使用 $z$ 表示环境信息，预测规则应写为 $\hat y=f_\theta(x,z)$。若部署时没有 $z$，评价时也不能用真实域标识替代模型的输入。
 
-这里的“域”是数据产生环境及其分布，不只是文件夹名称。“任务”包括要预测什么和怎样计算错误。$X$是输入，$Y$是目标标签，$f(X)$是预测，$\ell$把单次错误变成一个数，风险$R_t$是目标环境中这些错误的期望。例如零一损失在判对时为$0$、判错时为$1$，风险就是错误率。若使用交叉熵，风险衡量的还包括预测概率的好坏，不能直接当成错误率。联合分布$P(X,Y)$同时描述输入和标签。边缘分布$P(X)$忽略标签。条件分布$P(Y\mid X)$描述给定输入后的标签规则。
-
-预训练与迁移的分工也由此明确：前者产生一组参数，后者要证明使用这些参数或源数据确实降低了目标风险。即使无需更新参数、直接复用源模型，也是一种需要目标评价的复用方式。微调只是迁移的一种手段。
-
-协变量偏移假定$P_s(Y\mid X)=P_t(Y\mid X)$而输入边缘分布变化。标签偏移假定$P_s(X\mid Y)=P_t(X\mid Y)$而类别比例变化。概念变化则涉及预测关系本身。实际数据可能同时存在多种变化。仅观察无标签目标输入通常无法确定标签机制是否改变，因此无监督适配不能替代目标标签审核。
-
-\section{实例重加权与分布对齐}
-\paragraph{重要性加权}
-在协变量偏移且目标分布支撑被源分布覆盖时，目标风险可写为
+\subsection{偏移假设}
+迁移方法依赖关于 $P_s$ 和 $P_t$ 的假设。协变量偏移（covariate shift）假定
 \begin{equation}
- R_t(f)=\E_{P_s}\left[w(X)\ell(f(X),Y)\right],\qquad
- w(x)=\frac{p_t(x)}{p_s(x)}.
+ P_s(Y\mid X)=P_t(Y\mid X),\qquad P_s(X)\ne P_t(X).
+\label{eq:transfer-covariate-shift}
 \end{equation}
-先用源、目标输入估计密度比，再最小化加权源域损失。核均值匹配直接使加权源域特征均值接近目标均值，避免分别估计高维密度\cite{huang2007kmm}。若用域分类器估计比值，必须校正训练时源、目标样本的先验比例。大权重会使少数样本主导梯度，截断权重可以降低方差但引入偏差。有效样本量$(\sum_iw_i)^2/\sum_iw_i^2$可用于判断加权是否退化。
-
-\paragraph{先用两个工况手算权重}
-设输入只有低速、高速两种工况，源比例为$(0.8,0.2)$，目标比例为$(0.4,0.6)$，并假定同一工况中的预测关系不变。两组权重分别为$0.4/0.8=0.5$和$0.6/0.2=3$。若某模型两组平均损失为$0.1,0.5$，源风险为$0.8\times0.1+0.2\times0.5=0.18$，目标风险为$0.4\times0.1+0.6\times0.5=0.34$。加权源风险$0.8\times0.5\times0.1+0.2\times3\times0.5=0.34$恰好一致。权重不是把高速样本改成新样本，而是增加它们对平均损失和梯度的贡献。若源数据完全没有高速工况，分母为零，重加权就无法替代采集数据。
-
-\paragraph{风险恒等式、密度比估计与方差}
-以离散标签和连续输入为例，协变量偏移要求对目标几乎处处的$x$，两域条件分布相同，且$p_t(x)>0$时$p_s(x)>0$。于是
-\begin{align}
- R_t(f)&=\int\sum_y\ell(f(x),y)p_t(y\mid x)p_t(x)\,\mathrm dx\\
- &=\int\sum_y\ell(f(x),y)p_s(y\mid x)p_s(x)
- \frac{p_t(x)}{p_s(x)}\,\mathrm dx.\label{eq:transfer-source-risk-integral}
-\end{align}
-式\eqref{eq:transfer-source-risk-integral}才是可从源标签估计的量。支撑覆盖不是技术性装饰：源域从未出现的输入区域没有标签项可重用，任何有限权重都不能补上这部分风险。
-
-令域指示$D=1$表示目标，域分类器训练混合中的先验为$\pi_t$与$\pi_s=1-\pi_t$，其校准输出为$q(x)=P(D=1\mid x)$。由贝叶斯公式
+输入出现频率变了，给定输入后的标签规则保持不变。标签偏移（label shift）假定
 \begin{equation}
- \frac{q(x)}{1-q(x)}=\frac{\pi_t p_t(x)}{\pi_s p_s(x)},\qquad
+ P_s(X\mid Y)=P_t(X\mid Y),\qquad P_s(Y)\ne P_t(Y).
+\label{eq:transfer-label-shift}
+\end{equation}
+类条件输入分布保持不变，类别比例发生变化。概念偏移（concept shift）表示 $P(Y\mid X)$ 改变。它可能来自标签定义变化、传感器与标签关系变化或未观测环境变量变化。
+
+实际数据可能同时含有多种偏移。只有目标无标签输入时，通常不能仅凭数据证明式\eqref{eq:transfer-covariate-shift}成立。因此，偏移名称是建模假设，不能由文件夹名称直接确定。适配前应记录标签定义、采样条件、目标数据可见范围和标签到达时间。
+
+\subsection{未见目标域的训练约束}
+DG 没有目标输入，后文的目标密度比与目标统计量因而不可计算。一个可实施的起点是按源域组织风险。设有 $M\geq1$个带标签源域，第 $e$个源域的总体风险为 $R_e(f)=\mathbb E_{P_e}\ell(f(X),Y)$，$e=1,\ldots,M$。域均衡目标为
+\begin{equation}
+ \min_f\frac1M\sum_{e=1}^M R_e(f).
+\end{equation}
+实际用每个源域的训练平均损失替代 $R_e$。按域平均可避免大域仅凭样本量占据训练目标，但它只优化源域平均表现。若还希望控制最差源域，可以比较
+\begin{equation}
+ \min_f\max_{1\leq e\leq M}R_e(f).
+\end{equation}
+这里内部的最大值选择风险最高的源域，外部的最小化要求降低这一风险。后者会提高困难域的影响，也可能过度关注噪声较大的域。
+
+这两个目标都不自动保证未知目标域表现。只有当目标变化与源域覆盖的变化有关，且存在可共享的预测关系时，多源训练才有可解释的迁移依据。源域留一验证可以模拟未见环境，却不能证明任意未来分布都被覆盖。采用保持标签的增强时，也必须解释增强是否符合真实设备变化。若增强删除了缺陷颜色或故障幅值，所谓不变性可能恰好损害目标任务。
+
+\section{目标风险与重要性加权}
+
+\subsection{从源风险得到目标风险}
+给定预测函数 $f$ 和单样本损失 $\ell$，目标风险为
+\begin{equation}
+ R_t(f)=\mathbb E_{(X,Y)\sim P_t}\left[\ell(f(X),Y)\right].
+\label{eq:transfer-target-risk}
+\end{equation}
+$R_t$ 是目标域上平均损失，不能由源测试分数直接替代。若满足协变量偏移且目标分布的输入支撑被源分布覆盖，则
+\begin{align}
+R_t(f)
+&=\mathbb E_{P_s}\left[w(X)\ell(f(X),Y)\right],\\
+ w(x)&=\frac{p_t(x)}{p_s(x)}.
+\label{eq:transfer-importance-weight}
+\end{align}
+$p_s$ 和 $p_t$ 是相对于同一参考测度的两个输入密度，$w(x)$ 是密度比。支撑覆盖要求 $p_t(x)>0$ 的区域满足 $p_s(x)>0$，忽略概率为零的例外。以连续输入和离散标签为例，风险变换的关键步骤为
+\begin{align}
+ R_t(f)&=\int\sum_{y\in\mathcal Y}\ell(f(x),y)p_t(y\mid x)p_t(x)\,\mathrm dx\\
+ &=\int\sum_{y\in\mathcal Y}\ell(f(x),y)p_s(y\mid x)
+ \frac{p_t(x)}{p_s(x)}p_s(x)\,\mathrm dx.
+ \label{eq:transfer-source-risk-integral}
+\end{align}
+第一步按输入和标签的联合概率平均损失。第二步使用协变量偏移替换条件分布，再乘除源输入密度。式\eqref{eq:transfer-source-risk-integral}因而变成带权的源域期望。需要损失可积，才能把它作为有限风险处理。源域没有出现过的输入区域没有可重用的标签信息。
+
+给定源样本 $(x_i,y_i)_{i=1}^{n_s}$，加权经验风险为
+\begin{equation}
+\widehat R_t(f)=\frac1{n_s}\sum_{i=1}^{n_s}w(x_i)\ell(f(x_i),y_i).
+\label{eq:transfer-weighted-empirical-risk}
+\end{equation}
+它增加目标常见样本对损失和梯度的贡献，不会生成新的样本。若权重估计准确，式\eqref{eq:transfer-weighted-empirical-risk}估计的是目标风险。若权重集中在少数源样本，估计方差会很大。常用诊断量是
+\begin{equation}
+ n_{\mathrm{eff}}=\frac{(\sum_iw_i)^2}{\sum_iw_i^2},
+\end{equation}
+其中 $w_i=w(x_i)$。它表示权重集中程度，不是所有损失下都精确等于独立样本数。
+
+\subsection{密度比估计与局限}
+密度比可以直接估计，也可以通过域分类器间接估计。令 $D=1$ 表示目标域，域分类器输出 $q(x)=P(D=1\mid x)$。若训练混合数据中的目标和源先验分别为 $\pi_t$ 与 $\pi_s$，贝叶斯公式给出
+\begin{equation}
  w(x)=\frac{\pi_s}{\pi_t}\frac{q(x)}{1-q(x)}.
+\label{eq:transfer-domain-classifier-ratio}
 \end{equation}
-若训练时人为平衡两域，先验就是该平衡采样的比例，而不是原始数据库大小的比例。$q$接近$1$使估计非常不稳定。高域分类准确率此时可能表明重叠不足，而不是重加权更可靠。
+这里 $0<\pi_t<1$且 $\pi_s=1-\pi_t$，先验是域分类器训练时的采样比例。公式还要求 $q$能可靠估计该混合分布下的后验概率。若人为把两个域采成相同数量，就必须使用相同的采样先验，而不能使用原始数据库比例。$q(x)$接近 $1$时分母很小，密度比估计会不稳定。域分类准确率很高可能意味着支撑重叠不足，不能解释为权重更可信。
 
-对独立源样本，使用真实权重的估计$\widehat R=n_s^{-1}\sum_iw_i\ell_i$在可积时无偏。有限方差时其方差为$\Var_s(w\ell)/n_s$。若截断为$\bar w=\min(w,c)$，且$0\leq\ell\leq L_{\max}$，则
+一个小例子可以说明加权改变了风险。源域中低速、高速样本比例为 $(0.8,0.2)$，目标域比例为 $(0.4,0.6)$。协变量偏移条件下，两种工况的权重为 $0.5$ 和 $3$。若模型在两种工况上的平均损失为 $0.1$ 和 $0.5$，源风险为 $0.18$，加权源风险为 $0.34$，目标风险也为 $0.34$。若源域没有高速记录，则高速权重没有有限估计，重加权不能替代采集高速数据。截断大权重可以降低方差，但会引入偏差，因此必须在独立目标验证集上选择截断规则。
+
+\subsection{类别比例变化与权重稳定性}
+标签偏移时，根据式\eqref{eq:transfer-label-shift}分解联合密度可得
 \begin{equation}
- 0\leq R_t-\E_s[\bar w\ell]
- =\E_s[(w-c)_+\ell]\leq L_{\max}\E_s[(w-c)_+].
+ p_t(x,y)=p_s(x\mid y)p_t(y)
+ =p_s(x,y)\frac{p_t(y)}{p_s(y)}.
 \end{equation}
-这显式展示了截断的偏差来源。自归一化估计$\sum_iw_i\ell_i/\sum_iw_i$也通常具有有限样本偏差，但可改善数值稳定性。有效样本量来自归一化权重$\alpha_i=w_i/\sum_jw_j$的$1/\sum_i\alpha_i^2$：全部相等时为$n_s$，一个样本几乎占全重时接近$1$。它是权重集中的诊断量，不是所有损失下精确的独立样本数。
+因此权重应改为类别先验比 $w_y=p_t(y)/p_s(y)$，要求目标中出现的类别在源域具有正概率。这与按输入密度加权是两种不同假设。核均值匹配（Kernel Mean Matching，KMM）则通过使加权源特征均值接近目标特征均值来估计样本权重，避免分别拟合两个高维输入密度\cite{huang2007kmm}。匹配统计量仍然需要协变量偏移等条件支持其风险解释。
 
-标签偏移下，权重改为类别先验比$p_t(y)/p_s(y)$。这个结论来自$p_t(x,y)=p_s(x\mid y)p_t(y)=p_s(x,y)p_t(y)/p_s(y)$，要求目标出现的类别在源域具有正概率。若希望从无标签目标数据估计先验，可先固定一个分类器，定义源验证集上的混淆矩阵$C_{ky}=P_s(\widehat Y=k\mid Y=y)$。标签偏移意味着该矩阵在目标域不变，目标预测类别频率$\mu_k=P_t(\widehat Y=k)$满足$\mu=C\pi_t$，其中$\pi_t\in\R^K$是目标类别先验。可在$\pi_t\geq0$、$\mathbf1^\top\pi_t=1$约束下拟合这个线性关系。矩阵列若近似相同，分类器不能区分类别，先验反演便病态。若$P(X\mid Y)$也改变，则关系本身失效。它不能直接与协变量偏移权重互换。若目标域出现源域从未包含的故障，仅靠重加权不能产生缺失的类别证据。
-
-标签偏移可手算为另一种情形：两个真实类别上的混淆矩阵为$C=\begin{bmatrix}0.9&0.2\\0.1&0.8\end{bmatrix}$，每列对应一个真实类别，每列和为$1$。若目标预测频率为$\mu=(0.55,0.45)^\top$，写真实类别比例为$(a,1-a)^\top$，第一行给出$0.55=0.9a+0.2(1-a)$，故$a=0.5$。这个反演只有在目标域仍保留这些类条件识别率时成立，不能把预测频率直接当成真实类别频率。
-
-\paragraph{Maximum Mean Discrepancy (MMD) 与 Correlation Alignment (CORAL)}
-深度适配网络在特征$z=F_\theta(x)$上同时优化源域监督损失和域差异\cite{long2015dan}：
+无标签目标数据并不直接给出真实类别比例。固定一个分类器，设共有 $K$ 类，源验证集的混淆矩阵为 $C_{ky}=P_s(\widehat Y=k\mid Y=y)$，其中 $k,y\in\{1,\ldots,K\}$。令目标预测频率为 $\mu_k=P_t(\widehat Y=k)$，目标真实类别比例为 $\pi_y^t=P_t(Y=y)$。标签偏移下，由全概率公式得到
 \begin{equation}
- \mathcal L=\mathcal L_s+\lambda\left\|\frac1{n_s}\sum_i\varphi(z_i^s)
- -\frac1{n_t}\sum_j\varphi(z_j^t)\right\|_{\mathcal H}^2.\label{eq:transfer-mmd-objective}
+ \mu=C\pi^t,\qquad \pi_y^t\geq0,\quad \sum_{y=1}^K\pi_y^t=1.
 \end{equation}
-核技巧将平方范数展开为源源、目标目标和源目标三组核值，无需显式构造$\varphi$。训练时从两域抽取批次，计算分类与对齐损失，再共同更新编码器。核带宽决定比较的尺度，多核 MMD 组合不同带宽以减少对单一尺度的依赖。
+$\mu,\pi^t\in\R^K$，$C\in\R^{K\times K}$的每列和为 $1$。可在概率单纯形约束下拟合此关系。若矩阵列近似相同，先验反演会不稳定。若类条件输入分布也改变，这个线性关系便不再成立。
 
-$\varphi$把表示映射到用于比较分布的特征空间$\mathcal H$，核函数$k(u,v)$直接计算该空间中的内积，因此不必真的存储可能无限维的$\varphi(u)$。例如线性核$k(u,v)=u^\top v$就是在原特征空间比较均值。高斯核$k(u,v)=\exp(-\|u-v\|^2/(2b^2))$用带宽$b>0$控制多远的两个样本仍被视为相似。MMD 是最大均值差异，CORAL 是相关性对齐。本节给出的 CORAL 实际比较协方差矩阵，而不是逐个样本配对。
+例如 $C=\begin{bmatrix}0.9&0.2\\0.1&0.8\end{bmatrix}$，$\mu=(0.55,0.45)^{\mathsf T}$。写 $\pi^t=(a,1-a)^{\mathsf T}$，第一行给出 $0.55=0.9a+0.2(1-a)$，所以 $a=0.5$。预测频率 $0.55$并不等于真实类别比例 $0.5$。这一教学计算依赖混淆矩阵在目标域保持不变。
 
-\paragraph{核均值差的实际计算}
-设$k(u,v)=\langle\varphi(u),\varphi(v)\rangle_{\mathcal H}$为正定核，$z\in\R^d$。将式\eqref{eq:transfer-mmd-objective}中的平方范数按$\|a-b\|^2=\langle a,a\rangle+\langle b,b\rangle-2\langle a,b\rangle$展开，得到
+若目标中出现源域没有的类别，任何先验比都无法补充缺失类别。概念偏移下，增加样本权重也无法修复标签规则本身的变化。用真实权重计算时，对固定 $f$ 和独立源样本，式\eqref{eq:transfer-weighted-empirical-risk}在可积条件下无偏，有限方差时其方差为 $\Var_s(w\ell)/n_s$。训练后选择出的 $f$ 已依赖训练数据，不能据此宣称其训练风险是无偏泛化估计。
+
+\section{表示统计对齐}
+
+\subsection{MMD 的比较对象}
+重要性加权需要估计密度比。高维输入中，直接估计两个密度往往困难。另一条路线是在表示空间比较源、目标分布。令编码器输出 $z=F_\theta(x)\in\mathbb R^d$，核函数 $k(u,v)$ 将表示间的相似性映射为标量。若 $k(u,v)=\langle\varphi(u),\varphi(v)\rangle_{\mathcal H}$，则最大均值差异（Maximum Mean Discrepancy，MMD）比较两个域在核特征空间中的均值：
+\begin{equation}
+\operatorname{MMD}^2(P_s^Z,P_t^Z)=
+\left\|\mathbb E_s\varphi(Z)-\mathbb E_t\varphi(Z)\right\|_{\mathcal H}^2.
+\label{eq:transfer-mmd}
+\end{equation}
+$\mathcal H$ 是核特征空间，$\varphi$ 是特征映射，$P_s^Z$ 与 $P_t^Z$ 是表示的边缘分布。小批次的有偏估计为
 \begin{align}
- \widehat{\mathrm{MMD}}_b^2
- &=\frac1{n_s^2}\sum_{i,i'}k(z_i^s,z_{i'}^s)
- +\frac1{n_t^2}\sum_{j,j'}k(z_j^t,z_{j'}^t)\\
- &\quad-\frac2{n_sn_t}\sum_{i,j}k(z_i^s,z_j^t).
+\widehat{\operatorname{MMD}}^2
+&=\frac1{n_s^2}\sum_{i,i'}k(z_i^s,z_{i'}^s)
++\frac1{n_t^2}\sum_{j,j'}k(z_j^t,z_{j'}^t)\\
+&\quad-\frac2{n_sn_t}\sum_{i,j}k(z_i^s,z_j^t).
+\label{eq:transfer-mmd-estimator}
 \end{align}
-这是含对角项的非负、有偏估计。若两域样本分别独立同分布且$n_s,n_t>1$，去掉前两项中相同下标的配对，并将分母换为$n_s(n_s-1)$和$n_t(n_t-1)$，可得到总体平方 MMD 的无偏估计。后者有限样本下可能为负，不能误认为程序必定出错。采用特征核（characteristic kernel）时，核均值能够唯一确定其适用分布类中的分布，因此总体 MMD 为零可以识别分布相同。这里不是泛指作用于特征的任意核，线性核就只检查均值相同。无论采用哪种核，比较对象都是$P_s(Z)$与$P_t(Z)$，并没有自动检查$P_s(Y\mid Z)$与$P_t(Y\mid Z)$。
+源批次有 $n_s\geq1$ 个表示，目标批次有 $n_t\geq1$ 个表示。索引 $i,i'$ 遍历源批次，$j,j'$ 遍历目标批次。把式\eqref{eq:transfer-mmd}的平方范数展开为两项自身内积减去两倍交叉内积，再以样本平均替代期望，就得到式\eqref{eq:transfer-mmd-estimator}。三项分别比较源源、目标目标及源目标样本。这里包含相同下标的对角项，所以估计非负但一般有偏。
 
-CORAL 对齐二阶统计量\cite{sun2016coral}：
-\begin{equation}
- \mathcal L_{\mathrm{CORAL}}=\frac{1}{4d^2}\|C_s-C_t\|_F^2,
-\end{equation}
-其中$C_s,C_t$为$d$维表示的批次协方差。具体地，把样本按行写成$Z_s\in\R^{n_s\times d}$，令$H_s=I_{n_s}-\mathbf1\mathbf1^\top/n_s$，则$C_s=Z_s^\top H_sZ_s/(n_s-1)$，目标域同理。由于$C_s-C_t$对称，矩阵微分给出
-\begin{equation}
- \nabla_{Z_s}\mathcal L_{\mathrm{CORAL}}
- =\frac{H_sZ_s(C_s-C_t)}{d^2(n_s-1)}.
-\end{equation}
-可见梯度来自中心化表示与协方差差异的乘积，源、目标均值本身不在该损失中。如果还需均值对齐，应另行添加对应项。$n_s=1$时样本协方差未定义，小批次下秩至多为$n_s-1$，也解释了协方差估计为何依赖批次组织。它计算直接，但小批次协方差不稳定，而且二阶一致不代表类别条件分布一致。MMD 与 CORAL 都可能把不同类别拉近。存在目标标签时应检查类条件结构，使用伪标签时则需控制错误对齐的累积。
+核技巧无需显式构造 $\varphi$。例如线性核 $k(u,v)=u^{\mathsf T}v$只比较原表示均值。高斯核 $k(u,v)=\exp(-\|u-v\|_2^2/(2b^2))$ 中的带宽 $b>0$控制比较尺度。采用特征核（characteristic kernel，例如适当定义域上的高斯核）且核均值存在时，总体 MMD 为零可以识别分布相同。这里的特征核具有分布可识别性，不泛指任意作用在特征上的核。有限批次 MMD 很小不证明总体分布完全相同，也不检查标签规则。
 
-一维源表示$(-1,1)$与目标表示$(-2,2)$的均值都为零，线性核 MMD 因而为零。样本方差却分别为$2$与$8$，CORAL 损失为$(2-8)^2/4=9$。相反，把$(-1,1)$整体平移为$(4,6)$后，方差不变，CORAL 为零，均值差却为$5$。这两个手算例子解释了为何均值、协方差检查互不替代，更不能替代标签语义检查。$\|A\|_F^2$就是矩阵所有元素的平方和。
+深度适配网络（Deep Adaptation Networks，DAN）将核均值差与源监督目标共同优化\cite{long2015dan}。训练时从两域各抽一个批次，计算任务损失与 MMD，再反向传播更新编码器。核带宽、批次组成和对齐权重都需要按允许的验证协议选择。
 
-\paragraph{域对抗适配}
-Domain-Adversarial Neural Network (DANN) 用域判别器$D$识别表示来自哪一个域\cite{ganin2016dann}。若域损失为交叉熵，目标写为
-\begin{equation}
- \min_{F,C}\max_D\;\mathcal L_s(C(F(x_s)),y_s)
- -\lambda\mathcal L_d(D(F(x)),d).
-\end{equation}
-域判别器最小化自己的交叉熵，编码器通过梯度反转最大化该损失，同时维持源域分类能力。实现时不能将两个模块都沿同一符号更新。域准确率接近随机只是对齐的诊断信号，并非目标分类正确的证据。特征全部坍缩也可使域不可区分。
+\subsection{CORAL 的二阶对齐}
+均值比较未必能检查特征的波动与维度相关性。相关性对齐直接比较表示的协方差，其英文名称为 Correlation Alignment，简称 CORAL。
 
-\paragraph{域不可区分为何不是语义正确}
-为了看清目标的符号，采用等域权重的域损失
+深度 CORAL 将这种比较作为网络的训练损失\cite{sun2016coral}。它通过比较各维波动及共同变化的统计量来调整表示。
+
+源表示矩阵 $Z_s\in\R^{n_s\times d}$与目标表示矩阵 $Z_t\in\R^{n_t\times d}$的每行是一个样本。定义中心化矩阵 $H_s=I_{n_s}-\mathbf1\mathbf1^{\mathsf T}/n_s$，样本协方差为
 \begin{equation}
- \mathcal L_d=-\E_s\log(1-D(Z))-\E_t\log D(Z).
+ C_s=\frac{Z_s^{\mathsf T}H_sZ_s}{n_s-1},\qquad
+ C_t=\frac{Z_t^{\mathsf T}H_tZ_t}{n_t-1}.
 \end{equation}
-固定编码器，在具有特征密度且$p_s(z)+p_t(z)>0$的点逐点最小化，得到
-\[
+$C_s,C_t\in\R^{d\times d}$是样本协方差，要求 $n_s,n_t>1$。各域样本独立同分布且具有有限二阶矩时，它们分别无偏估计该域的总体协方差。CORAL 将二者的差异定义为
+\begin{equation}
+ \mathcal L_{\mathrm{CORAL}}=\frac1{4d^2}\|C_s-C_t\|_F^2,
+\label{eq:transfer-coral}
+\end{equation}
+其中 $H_t=I_{n_t}-\mathbf1\mathbf1^{\mathsf T}/n_t$与 $H_s$具有相应的批次维度。$I_n$是 $n$维单位矩阵，$\mathbf1$是相应长度的全 $1$列向量。两个 $C$均为 $d\times d$矩阵，$\|\cdot\|_F^2$表示所有矩阵元素的平方和。乘中心化矩阵 $H$相当于逐行减去批次均值。小批次协方差的秩不超过批次样本数减一，小批次会使二阶统计估计不稳定。该损失只比较二阶统计量。均值对齐需要另加损失，类别条件对齐还需要标签或可信伪标签。
+
+例如，一维源表示为 $(-1,1)$，目标表示为 $(-2,2)$。两者均值相同，线性 MMD 为零，但方差分别为 $2$ 和 $8$，CORAL 损失为 $9$。若把源表示平移到 $(4,6)$，两者方差相同，CORAL 为零，但均值不同。这个例子说明不同统计量不能互相替代。
+
+统计对齐的共同目标可写为
+\begin{equation}
+\min_{F,C}\ \mathcal L_s\bigl(C(F(X_s)),Y_s\bigr)
++\lambda\,\mathcal L_{\mathrm{align}}\bigl(F(X_s),F(X_t)\bigr),
+\label{eq:transfer-statistical-alignment}
+\end{equation}
+这里 $X_s,Y_s$表示带标签源批次，$X_t$表示无标签目标批次，$C$是任务预测头，$\mathcal L_s$是源批次平均监督损失。$\mathcal L_{\mathrm{align}}$可以取上述 MMD 或 CORAL，$\lambda\geq0$控制对齐强度。采用 MMD 的目标沿用标签\eqref{eq:transfer-mmd-objective}。
+\begin{equation}
+ \mathcal L=\mathcal L_s+\lambda\widehat{\operatorname{MMD}}^2.
+ \label{eq:transfer-mmd-objective}
+\end{equation}
+$\lambda$过大可能把不同类别的表示拉近。边缘分布对齐下降不能证明 $P_s(Y\mid Z)=P_t(Y\mid Z)$。图\ref{fig:transfer-statistics}用一维点集区分均值和方差，图中没有进行逐个样本配对。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[x=0.62cm,y=0.8cm,font=\small]
+\draw[->] (-3,0)--(7,0) node[right] {$z$};
+\foreach \v in {-2,-1,0,1,2,4,5,6}{\draw (\v,0.06)--(\v,-0.06) node[below,font=\scriptsize] {$\v$};}
+\node[anchor=east] at (-3,1) {源};
+\node[anchor=east] at (-3,2) {目标 A};
+\node[anchor=east] at (-3,3) {目标 B};
+\draw[dashed,gray] (0,0.3)--(0,3.35);
+\foreach \v in {-1,1}{\fill (\v,1) circle (2.5pt);}
+\foreach \v in {-2,2}{\draw[thick] (\v-0.09,1.9) rectangle (\v+0.09,2.1);}
+\foreach \v in {4,6}{\draw[thick] (\v,3) circle (2.5pt);}
+\node[anchor=west,font=\scriptsize] at (2.6,1) {均值 $0$，方差 $2$};
+\node[anchor=west,font=\scriptsize] at (2.6,2) {均值 $0$，方差 $8$};
+\node[anchor=west,font=\scriptsize] at (-2.5,3.7) {目标 B 均值 $5$，方差 $2$};
+\end{tikzpicture}
+\caption{统计量比较的教学点集。实心点、方框和空心圆分别表示源、目标 A 和目标 B。方差按两条样本的无偏样本方差计算。源与 A 的均值相同，源与 B 的方差相同，两种匹配均不能识别所有分布差异。}
+\label{fig:transfer-statistics}
+\end{figure}
+
+\section{域对抗适配}
+
+\subsection{DANN 的信息流}
+统计对齐预先规定了比较哪些统计量。域对抗神经网络（Domain-Adversarial Neural Network，DANN）改用一个可训练的域判别器 $D$寻找可区分源、目标的表示差异，同时要求编码器保持源域预测能力\cite{ganin2016dann}。用 $a=0$表示源域、$a=1$表示目标域，以避免与表示维度 $d$混淆。判别器输出 $D(z)\in(0,1)$表示目标域概率。采用两域等权的交叉熵损失
+\begin{equation}
+ \mathcal L_d=-\mathbb E_s\log(1-D(Z))-\mathbb E_t\log D(Z).
+ \label{eq:transfer-domain-loss}
+\end{equation}
+这里两项分别惩罚源样本被判为目标、目标样本被判为源。实际用两域各自的批次平均近似。理想的极小极大目标为
+\begin{equation}
+\min_{F,C}\max_D\quad\mathcal L_s-\lambda\mathcal L_d,
+\qquad\lambda\geq0.
+\label{eq:transfer-dann}
+\end{equation}
+域判别器最大化负的域损失，等价于最小化自身交叉熵。编码器最小化整个目标，因此会使域判别变难。实际实现常在编码器与域判别器之间放置梯度反转层。图\ref{fig:transfer-dann}说明两条梯度路径的方向差异。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.7cm and 0.8cm]
+\node[idi input] (x) {输入 $x$};
+\node[idi process,right=of x] (f) {编码器\\$z=F_\theta(x)$};
+\node[idi output,right=of f] (c) {任务头 $C$\\源标签损失};
+\node[idi output,below=of c] (d) {域判别器 $D$\\域损失};
+\node[idi process,below=of f] (r) {梯度反转\\前向不变，反向乘 $-\lambda$};
+\draw[idi arrow] (x)--(f)--(c);
+\draw[idi arrow] (f)--(r)--(d);
+\draw[idi feedback] (d.south) -- ++(0,-0.4) -| (r.south);
+\end{tikzpicture}
+\caption{DANN 的两条训练路径。任务路径要求源域可预测，域路径通过梯度反转要求表示减少域信息。}
+\label{fig:transfer-dann}
+\end{figure}
+
+若编码器参数为 $\theta$，判别器参数为 $\omega$，任务头参数为 $\psi$，梯度下降实际执行
+\begin{align}
+ \theta&\leftarrow\theta-\eta(\nabla_\theta\mathcal L_s-\lambda\nabla_\theta\mathcal L_d),\\
+ \omega&\leftarrow\omega-\eta_d\nabla_\omega\mathcal L_d,
+ \qquad\psi\leftarrow\psi-\eta_c\nabla_\psi\mathcal L_s.
+\end{align}
+$\eta,\eta_d,\eta_c>0$是各模块学习率。编码器与判别器对域损失使用相反方向。源标签监督用于防止所有表示都变成一个常量，但它仍不能单独保证目标分类正确。
+
+固定编码器，且表示具有相对于同一参考测度的密度时，式\eqref{eq:transfer-domain-loss}在每个 $z$处对 $D$的导数为
+\begin{equation}
+ \frac{p_s(z)}{1-D(z)}-\frac{p_t(z)}{D(z)}.
+\end{equation}
+将其设为零，得到等先验下的理想判别器
+\begin{equation}
  D^*(z)=\frac{p_t(z)}{p_s(z)+p_t(z)}.
-\]
-两域密度都为零的点不贡献损失。仅一方密度为零时，最优值在边界，严格取值于$(0,1)$的判别器只能趋近它。下式的最小值按允许边界输出的理想判别器理解。代回可得
-\begin{equation}
- \min_D\mathcal L_d=\log4-2\operatorname{JS}(P_s^Z\|P_t^Z),
 \end{equation}
-其中$\operatorname{JS}(P\|Q)=\tfrac12\KL(P\|M)+\tfrac12\KL(Q\|M)$，$M=(P+Q)/2$。因此在判别器充分优化这一理想条件下，编码器最大化域损失相当于减小特征边缘分布差异。若实现中再把两域损失除以$2$，常数和系数也相应减半，方向不变。
+此式要求分母大于零，只有一域具有密度时按边界极限理解。足够强且充分训练的判别器接近随机，才支持边缘分布难以区分的解释。欠拟合判别器也可能接近随机。即使边缘分布完全相同，也没有检验标签关系。
 
-但令两域特征都均匀取$-1,+1$，源域标签满足$Y=\mathbf1[Z=1]$，目标域却满足$Y=\mathbf1[Z=-1]$。两域特征分布完全相同，任何域判别器都只能猜测，而源分类器在目标域全部判错。这个反例说明真正需要的是可共享的预测关系，而不只是看不出设备来源。二分类的零一风险可用理论形式
+例如两域的 $Z$均匀取 $-1,+1$。源域标签规则为 $Y=\mathbf1[Z=1]$，目标域规则为 $Y=\mathbf1[Z=-1]$，$\mathbf1[\cdot]$为条件成立时取 $1$的指示函数。域判别器只能猜测，而按源规则分类的模型会在目标域全部判错。
+
+领域适配理论用目标风险的上界表达这一限制\cite{bendavid2010theory}。对二分类零一损失，令 $\mathcal H$为分类器集合，$h\in\mathcal H$，则总体风险满足
 \begin{equation}
- R_t(h)\leq R_s(h)+\tfrac12d_{\mathcal H\Delta\mathcal H}(P_s^X,P_t^X)+\lambda^*,
- \qquad \lambda^*=\min_{h\in\mathcal H}(R_s(h)+R_t(h))
+R_t(h)\le R_s(h)+\frac12d_{\mathcal H\Delta\mathcal H}(P_s^X,P_t^X)+\lambda^*,
+\label{eq:transfer-domain-bound}
 \end{equation}
-理解这一点：差异量定义为$2\sup_{h,h'\in\mathcal H}|P_s(h\ne h')-P_t(h\ne h')|$，检查假设对在两域的分歧概率。$\lambda^*$则表达同一分类器同时做好两个域的可能性。这是总体风险界，有限样本估计还需要复杂度误差项。域对抗损失也不等于这个差异量的精确值。对齐可以降低某种域差异，却不能从无标签输入中证明$\lambda^*$很小。
-
-条件对齐将类别预测纳入域判别输入，以区分同一域中的不同语义。多源适配对不同源域分别估计可信度，避免样本最多的源主导目标。部分域适配需降低源域独有类别的权重，开放集适配则必须识别目标域未知类别。这些变体改变的是标签空间假设，不能只通过调大域对齐系数实现。
-
-\section{预训练、微调与参数高效适配}
-第\ref{chap:pretraining}章讨论如何从预训练数据构造可复用表示，本节转向已有表示如何适应目标任务。
-预训练提供初始化，但目标任务仍决定哪些层需要改变。线性探测冻结编码器只训练头，可检验原表示是否已具有判别性。逐层解冻先调整高层，再判断低层滤波是否需要变化。全量微调自由度最大，也更容易在少量目标样本上过拟合。比较时应固定目标标签量、预训练来源与超参数搜索预算。
-
-Adapter 在冻结骨干中插入低维瓶颈。对输入表示$h$，一个残差适配器可写为$h'=h+W_{up}\sigma(W_{down}h)$，只训练新增参数\cite{houlsby2019adapter}。LoRA 则令权重更新$\Delta W=BA$，以秩$r$限制更新自由度\cite{hu2021lora}。二者都降低每个目标域的存储开销，但低秩不意味着任何域变化都能被表达。提示学习优化输入或中间层的提示向量，适合保持基础模型不变的条件化使用。其可迁移性仍取决于基础模型是否理解目标语义。
-
-\paragraph{低秩更新的维度、梯度与容量}
-令冻结的线性层为$W_0\in\R^{d_{out}\times d_{in}}$，输入$x\in\R^{d_{in}}$。LoRA 使用$A\in\R^{r\times d_{in}}$、$B\in\R^{d_{out}\times r}$及尺度$s=\alpha/r$，输出为
+这里 $R_s,R_t$是源、目标总体错误率，$P_s^X,P_t^X$是输入边缘分布。约定差异量为
 \begin{equation}
- y=(W_0+sBA)x.
+ d_{\mathcal H\Delta\mathcal H}(P_s^X,P_t^X)
+ =2\sup_{h,h'\in\mathcal H}
+ \left|P_s(h(X)\ne h'(X))-P_t(h(X)\ne h'(X))\right|.
 \end{equation}
-可训练参数数目为$r(d_{out}+d_{in})$，更新秩不超过$r$。记$W_{eff}=W_0+sBA$，则$G=\partial\mathcal L/\partial W_{eff}\in\R^{d_{out}\times d_{in}}$，矩阵链式法则给出
+它比较两个分类器在两域上意见不一致的概率，$\sup$取所有分类器对中的上确界。$\lambda^*$是同一个分类器在两域的最小风险之和，若最小值不取得则以相应下确界定义。它不同于训练超参数 $\lambda$。式\eqref{eq:transfer-domain-bound}是总体风险界，若改用有限样本估计风险和差异，还需加入相应的估计与复杂度项。DANN 的域损失不等于此差异量的精确值。对齐降低差异项时，不能保证 $\lambda^*$很小。
+
+如果目标类别比例改变，盲目匹配边缘表示还可能破坏类别结构。条件对齐将类别信息纳入比较，试图区分“同类跨域差异”与“不同类差异”。目标伪标签不可靠时，这种比较会传播错误。若源域包含目标没有的类别，需要降低源独有类的影响。若目标出现源域没有的类别，则需要未知类识别或新标签证据。上述变化修改了标签空间条件，不能仅靠增大对齐系数解决。
+
+\section{参数适配与任务变化}
+
+\subsection{冻结、微调与适配器}
+前面的重加权和对齐主要依赖同一任务的源标签。如果目标任务改变，最直接的证据是目标标签。任务适配首先要决定哪些参数可以改变。沿用第\ref{chap:pretraining}章的记法，编码器为 $f_\theta$，目标头为 $h_\psi$。它们分别对应前文的 $F$和 $C$。给定 $m\geq1$个带标签目标训练样本 $(x_i^t,y_i^t)$，监督适配目标为
 \begin{equation}
- \nabla_B\mathcal L=sGA^\top,\qquad
- \nabla_A\mathcal L=sB^\top G.
+ \mathcal L_t(\theta,\psi)=\frac1m\sum_{i=1}^m
+ \ell\bigl(h_\psi(f_\theta(x_i^t)),y_i^t\bigr).
 \end{equation}
-这解释了常见的随机初始化$A$、零初始化$B$：初始$BA=0$保证原输出不变，同时$B$可以收到非零梯度。若两者都初始化为零，则两条梯度都为零，低秩分支无法启动。假如理想全量更新$\Delta W^*$的奇异值为$\sigma_1\geq\sigma_2\geq\cdots$，最佳秩$r$矩阵近似的平方 Frobenius 误差为$\sum_{j>r}\sigma_j^2$。因此低秩适配隐含的是有用更新可被少数方向近似，而非原权重本身低秩。该矩阵逼近结论也不等于网络任务风险的误差界。
+$\theta$从预训练值 $\theta_0$出发，$\psi$是目标头参数。分类时头输出类别概率，$\ell$可取交叉熵。回归时输出和损失应按目标量定义。若头输出概率，预测类别还需经最大概率等决策规则得到，不能把概率向量和类别编号混为同一对象。
 
-对 Adapter，若$h\in\R^d$、瓶颈宽度为$r$，则$W_{down}\in\R^{r\times d}$、$W_{up}\in\R^{d\times r}$，忽略偏置时有$2dr$个参数。它的非线性瓶颈通常不能像单个线性 LoRA 更新那样直接合并进原权重。选择应同时看可表达变化、路由和推理限制，而不只看参数比率。
+线性探测（linear probing）固定 $\theta=\theta_0$，只训练对表示为仿射映射的类别得分头。它检验表示中的线性可分信息。全量微调（fine-tuning）同时更新 $\theta$和 $\psi$，自由度最大，但目标标签少时容易过拟合和破坏原有表示。逐层解冻先训练高层，再用验证数据判断是否需要改变较低层。冻结还应说明是否固定归一化运行统计，否则权重没有梯度也可能改变模型函数。比较这些策略时，应固定目标标签量、预训练模型、数据划分和验证预算。
 
-可用一个小矩阵检查低秩的含义。令$d_{in}=d_{out}=2,r=1,s=1$，$A=[1\ \ 2]$、$B=[3\ \ 4]^\top$，则$BA=\begin{bmatrix}3&6\\4&8\end{bmatrix}$。对$x=(1,0)^\top$，新增输出为$(3,4)^\top$。两列彼此成比例，所以只有一个独立更新方向。这个极小例中参数数目仍为$4$，并不省参数。若原层为$100\times100$且$r=2$，才从$10000$个参数降为$400$个。实际省参数需要$r(d_{out}+d_{in})<d_{out}d_{in}$，低秩的名字本身不是节省保证。
+Adapter 在冻结骨干中加入小型瓶颈模块。对 $h\in\mathbb R^d$，一个残差 Adapter 为
+\begin{equation}
+ h'=h+W_{\mathrm{up}}\sigma(W_{\mathrm{down}}h),
+\end{equation}
+其中 $W_{\mathrm{down}}\in\mathbb R^{r\times d}$、$W_{\mathrm{up}}\in\mathbb R^{d\times r}$，$1\leq r<d$，$\sigma$是逐元素非线性函数。$h'$与 $h$均为 $d$维，残差连接保留原计算路径。忽略偏置时新增 $2dr$个参数。Adapter 将目标变化限制在小型非线性模块中\cite{houlsby2019adapter}。只训练新增模块和必要的目标头可以为不同目标域保存不同版本。若瓶颈过窄，所需变化可能无法表示。模块数量增加后需要路由规则，非线性模块通常不能简单合并回骨干。
 
-参数量、训练显存与推理开销应分别报告。冻结权重仍可能需要存储用于反向传播的激活。多个 Adapter 需要路由规则，LoRA 合并则需要确认目标域选择是否明确。不能把参数高效方法自动视为持续学习算法：若所有域共享并反复覆盖同一个低秩更新，仍会遗忘旧域。
+\subsection{LoRA 的低秩更新}
+Adapter 新增非线性计算路径。若希望把目标变化直接写为线性权重增量，可以使用低秩适配（Low-Rank Adaptation，LoRA）\cite{hu2021lora}。它冻结原权重 $W_0\in\mathbb R^{d_{\rm out}\times d_{\rm in}}$，用低秩矩阵表示更新：
+\begin{equation}
+ y=(W_0+sBA)x,
+\qquad A\in\mathbb R^{r\times d_{\rm in}},\quad
+ B\in\mathbb R^{d_{\rm out}\times r},\quad s=\alpha/r.
+\label{eq:transfer-lora}
+\end{equation}
+$x\in\mathbb R^{d_{\rm in}}$ 是输入，$y\in\mathbb R^{d_{\rm out}}$ 是输出，$r$ 是更新秩，$\alpha$ 是尺度超参数。新增参数数目为 $r(d_{\rm in}+d_{\rm out})$，更新矩阵的秩不超过 $r$。实际节省参数要求该数量小于 $d_{\rm in}d_{\rm out}$。低秩假设约束的是有用的权重变化，不是说原权重本身低秩。
+
+若 $G=\partial\mathcal L/\partial W_{\rm eff}$ 且 $W_{\rm eff}=W_0+sBA$，链式法则给出
+\begin{equation}
+\nabla_B\mathcal L=sGA^{\mathsf T},\qquad
+\nabla_A\mathcal L=sB^{\mathsf T}G.
+\end{equation}
+$G$与 $W_0$同形，两个梯度分别与 $B$和 $A$同形。常用初始化令 $A$随机、$B=0$，使初始更新为零但 $B$可以收到非零梯度。若两者均为零，两条梯度都为零，低秩分支无法启动。
+
+用 $d_{\rm in}=d_{\rm out}=2$、$r=1$、$s=1$的教学矩阵核对运算。取 $A=[1\ \ 2]$、$B=[3\ \ 4]^{\mathsf T}$，则 $BA=\begin{bmatrix}3&6\\4&8\end{bmatrix}$。两列成比例，更新秩为 $1$。输入 $x=(1,0)^{\mathsf T}$时，新增输出为 $(3,4)^{\mathsf T}$。这个极小例中仍有 $4$个新增参数，没有节省。原层为 $100\times100$且 $r=2$时，才由 $10000$个全量权重更新变为 $400$个低秩参数。
+
+图\ref{fig:transfer-lora}把低秩更新与原层分开。部署时若目标版本固定，可将 $sBA$合并进 $W_0$，不再显式计算低秩分支。多个目标版本需要保留或切换各自增量。冻结骨干仍需前向计算，反向传播也可能需要保存中间激活。可训练参数、峰值训练显存和推理时延因此应分别报告。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.6cm]
+\node[idi input] (x) {$x\in\R^{d_{\rm in}}$};
+\node[idi state,right=of x] (w) {$W_0$\\冻结};
+\node[idi output,right=1.2cm of w] (sum) {相加\\输出 $y$};
+\node[idi process,below=of w] (a) {$A$ 可训练\\降至 $r$维};
+\node[idi process,right=of a] (b) {$sB$ 可训练\\升至 $d_{\rm out}$维};
+\draw[idi arrow] (x)--(w)--(sum);
+\draw[idi arrow] (x.south) |- (a.west);
+\draw[idi arrow] (a)--(b);
+\draw[idi arrow] (b.north)--(sum.south);
+\end{tikzpicture}
+\caption{LoRA 的局部计算。实线箭头表示前向计算，冻结路径输出 $W_0x$，可训练路径输出 $sBAx$，相加得到式\eqref{eq:transfer-lora}。图中的 $r$是中间宽度，不是原权重的秩。}
+\label{fig:transfer-lora}
+\end{figure}
+
+LoRA 降低存储和优化参数量，但小秩可能表达不了目标任务所需的变化。参数高效不等于风险自动更低，也不等于持续学习中的旧能力保持。连续覆盖同一个 Adapter 或 LoRA 仍会遗忘。为不同任务保存模块则还需正确路由，不能仅凭模块冻结宣称整个系统的旧预测不变。
 
 \section{测试时适配与负迁移}
-测试时适配（test-time adaptation，TTA）只使用部署输入调整有限参数。它必须先规定是否允许使用当前批次参与预测前更新。Tent 最小化预测熵，并在其设定下更新归一化层仿射参数\cite{wang2021tent}：
+
+\subsection{无标签目标数据的在线使用}
+测试时适配（test-time adaptation，TTA）在部署输入到达后更新有限参数。它必须规定适配发生在预测前还是预测后，以及更新状态是否跨批次保留。以熵最小化为例，模型输出 $p_\eta(k\mid x)$，允许更新的参数为 $\eta$，批次 $B$ 上的目标为
 \begin{equation}
- \min_{\eta}\frac1{|B|}\sum_{x\in B}
- \left[-\sum_kp_\eta(k\mid x)\log p_\eta(k\mid x)\right].
+\min_\eta\frac1{|B|}\sum_{x\in B}
+\left[-\sum_{k=1}^{K}p_\eta(k\mid x)\log p_\eta(k\mid x)\right].
+\label{eq:transfer-tta-entropy}
 \end{equation}
-先保留训练好的模型，按部署批次计算熵，再对允许更新的参数执行梯度步。低熵可能是正确判断，也可能是错误自信。类别极不平衡、批次很小或流中含未知故障时，熵最小化可能将预测推向单一类别。逐批重置与持续累积更新是不同规则，必须明确是否保留适配状态。
+$B$是非空部署批次，$|B|$是样本数，$K\geq2$是固定类别数，$p_\eta(k\mid x)$是第 $k$类预测概率，约定 $0\log0=0$，对数取自然对数。Tent 在源训练完成后，结合批次归一化统计，按其设置更新归一化层的仿射参数来降低预测熵\cite{wang2021tent}。它可以不访问源训练样本，但仍使用源训练模型以及关于目标预测结构的假设。
 
-用二分类数值理解熵：$p=(0.5,0.5)$时$H=\log2\approx0.693$，$p=(0.9,0.1)$时$H\approx0.325$，确定预测时熵趋于零。若真实类别恰是第二类，后一个预测虽然熵更低，却错得更自信。因此无标签目标衡量的是预测集中程度，不是准确率。
-
-部署评估还要规定信息到达顺序。严格在线的“先预测、后更新”先用当前模型记录本批结果，再利用本批无标签输入更新供后续批次使用。“先适配、后预测”允许本批输入参与自身预测前的更新，是另一种协议，不能混报。两种协议都不得访问未来批次或测试标签。重置频率、步数和学习率应由先前验证数据确定，而不是查看测试准确率后调整。
-
-\paragraph{熵下降为什么会强化错误}
-令类别 logits 为$a\in\R^K$、$p=\softmax(a)$。由$\partial p_k/\partial a_j=p_k(\mathbf1[k=j]-p_j)$，可逐项得到
+二分类预测 $(0.5,0.5)$的熵约为 $0.693$，$(0.9,0.1)$的熵约为 $0.325$。若真实标签是第二类，后一个预测更自信但仍错误。进一步令第一类概率为 $p=\sigma(a)=1/(1+e^{-a})$，$a\in\R$为二分类得分差，熵为 $H=-p\log p-(1-p)\log(1-p)$。由链式法则
 \begin{equation}
- \frac{\partial H(p)}{\partial a_j}=-p_j(\log p_j+H(p)).
+ \frac{\mathrm dH}{\mathrm da}
+ =\log\frac{1-p}{p}\,p(1-p).
 \end{equation}
-二分类时令$p=\sigma(a)$，则$\mathrm dH/\mathrm da=p(1-p)\log((1-p)/p)$。若$p>1/2$，梯度下降会继续增大$a$和$p$。若$p<1/2$则进一步压低$p$。没有标签参与时，这个更新没有能力识别当前偏向是否正确，只会强化已有偏向。熵适配因而依赖初始预测大体可信、低密度区域适合作决策边界等额外条件。应限制步数和漂移幅度，保留重置机制，并使用独立监测数据检验校准与少数类召回。这些操作降低风险，但仍不能构成无标签正确性保证。
+当 $p>1/2$时导数为负，梯度下降继续增大 $a$，使第一类概率更高。没有标签时，这个目标没有判断当前偏向是否正确的依据。熵最小化因而依赖初始预测大体可信等条件。类别不平衡、未知类别或小批次下，它可能强化错误自信或使输出集中到少数类。
 
-负迁移指相对于合适的无迁移基线，使用源知识反而提高目标风险。应比较从零训练、线性探测、全量微调和轻量适配，并绘制随目标标签量变化的学习曲线。领域自适应理论中的分布差异项之外，还存在源、目标任务能否被同一假设同时解释的误差项\cite{bendavid2010theory}。只减小域差异并不足够。
+严格在线协议应先用当前参数预测并记录结果，再用当前批次无标签输入更新后续预测。若先适配再预测，则允许本批输入影响其自身预测，需要单独报告这种协议。每批重置到源参数与跨批累积更新也不相同。两种方式都不能访问未来批次和当前测试标签。步数、学习率、重置频率及停止规则应由独立开发数据或预先规定的规则确定。无标签熵下降不能作为最终验收标准。
 
-换了新相机后，先查清楚是亮度、镜头和噪声变了，还是“什么算缺陷”的定义变了。前一类问题可以先试归一化适配和线性探测。后一类问题需要重新核对标签。若规则允许，可以用新相机的无标签图像做适配，但测试标签只能留到最终评价。报告各类缺陷召回、未知输入拒识、校准、训练成本和发生负迁移的设备组。若还要长期维护旧相机能力，就需要下一章的持续学习机制。
+\subsection{负迁移的判定}
+负迁移指使用源知识后，目标风险高于合适的无迁移基线。设迁移方法和基线得到的预测器分别为 $f_{\rm tr}$与 $f_{\rm base}$，定义
+\begin{equation}
+ \Delta R_t=R_t(f_{\rm tr})-R_t(f_{\rm base}).
+\end{equation}
+$\Delta R_t>0$表示按当前损失发生负迁移。基线必须有相同的目标标签权限、数据划分和合理的优化预算。有限测试集上的微小差值还可能来自抽样与训练随机性，需要报告不确定性，不能直接当作确定的总体结论。
 
-迁移学习中的分布偏移、对齐与参数适配可用以下材料复习，分别覆盖数据变换和模型复用。
+负迁移可能来自标签含义变化、表示丢失目标信息、错误的域对齐或过强的参数约束。它与遗忘的评价对象不同。负迁移检查源知识是否损害目标学习。遗忘检查更新以后旧任务是否退化。目标改善和源域遗忘可以同时发生，目标负迁移也可以出现在源预测完全没有改变的冻结表示方法中。
+
+\section{迁移评价与方法选择}
+
+\subsection{信息权限与验证划分}
+评价首先固定数据权限。普通监督任务适配使用目标训练标签选择参数，再用独立验证集选择策略。UDA 使用源标签与目标无标签训练记录，若另外使用目标验证标签，必须说明其数量和用途。严格不允许目标标签的设置，应在独立开发域上确定配置或采用预先规定的无标签选择规则。不能训练时声称无目标标签，选择最优检查点时却查看目标测试准确率。
+
+DG 应按整个域留出目标。用其无标签记录计算归一化、密度比或对齐损失，都会改变信息条件。TTA 则明确允许当前部署输入参与更新，需按时间顺序记录成绩。这些试验都可研究迁移，却不能将不同数据权限的分数当作同条件算法比较。
+
+图\ref{fig:transfer-evaluation}把适配和选择的边界分开。对振动信号先按设备、故障事件或连续时间段划分，再在各自范围内切窗口。同一事件的重叠窗口不能分到训练与测试两侧。若是跨相机试验，也应避免同一产品的近重复图像跨集合。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=0.7cm and 0.6cm]
+\node[idi input,text width=2.1cm] (train) {允许的训练数据\\拟合参数};
+\node[idi input,text width=2.1cm,right=of train] (val) {开发域或验证集\\选择配置};
+\node[idi output,text width=2.1cm,right=of val] (test) {冻结选择后\\独立目标评价};
+\draw[idi arrow] (train)--(val)--(test);
+\node[below=0.5cm of val,text width=7.5cm,align=center,font=\small] {无监督适配可访问声明允许的目标输入\\目标测试标签不反向进入参数拟合或配置选择};
+\end{tikzpicture}
+\caption{迁移评价的信息边界。箭头表示训练、选择、测试的顺序，不表示允许把测试标签传回训练。是否使用目标测试输入，须按 UDA 或 TTA 的具体协议另行声明。}
+\label{fig:transfer-evaluation}
+\end{figure}
+
+\subsection{基线、指标与资源}
+有目标训练标签时，至少比较从零训练、线性探测、全量微调和适用的轻量适配。在多个目标标签预算下绘制学习曲线，可以检查源知识是否主要帮助小样本情况。无目标标签时，从零监督训练目标模型不构成可行基线，应先比较源域直接训练后不适配的模型。若使用目标标签训练作为参考，应明确标为额外监督条件。
+
+评价不能只报告对齐损失、域分类准确率或训练损失。应在固定目标测试集上报告所选损失的经验风险，以及与业务有关的各类召回和误报。概率输出还应检查校准，即相同置信度预测的实际正确比例是否与置信度相符。标签比例失衡时不能只报告总准确率。DG 应报告各个留出域而不仅是合并平均分。若包含未知类别，拒识阈值应在验证阶段确定，并分别报告已知类识别与未知类检出。
+
+重复运行时保持数据划分一致，报告均值及波动范围。对于同一设备内高度相关的窗口，应按独立设备或事件组织重采样和区间估计。训练时间、可训练参数、总参数、峰值显存和推理时延分别计量。共享预训练的成本可以摊销，但仍要说明来源和是否计入比较。
+
+\subsection{新设备的适配流程}
+回到新相机质检。先核对新旧缺陷定义是否一致，并记录亮度、分辨率和产品类别的变化。有少量目标标签时，先建立线性探测与小学习率微调基线。若预算只允许保存少量目标专用参数，再比较 Adapter 或 LoRA。微调策略的选择仍由验证成绩决定。
+
+若只有目标无标签图像，首先保留不适配的源模型作为对照。只有在标签空间一致且可共享预测关系的假设合理时，才进一步比较密度比加权或表示对齐。输入重叠很差时应补充数据，不依靠极端权重解决覆盖缺口。缺陷定义发生变化或出现新故障时，应获得相应标签，不能把边缘对齐当成新标签证据。TTA 还要预定重置与回退规则，防止连续错误更新。
+
+更新后若系统仍服务旧相机，应同时报告旧相机性能变化。目标性能上升而源域下降时，是否接受这种取舍属于预先规定的服务目标。第\ref{chap:continual}章将把这种新旧能力冲突扩展到连续到达的数据流，并用逐阶段评价检查学习和遗忘。
+
 \section*{辅助学习材料}
 \begingroup
 \emergencystretch=3em
 \begin{itemize}
-\item \textbf{Transfer Learning}。作者/平台：Stanford CS231n。英文。课程笔记。阅读固定特征提取、微调以及数据规模和领域相似性对应的选择建议，理解迁移范围与过拟合风险。\href{https://cs231n.github.io/transfer-learning/}{在线阅读}。
-\item \textbf{Transfer Learning for Computer Vision Tutorial}。作者/平台：Sasank Chilamkurthy / PyTorch。英文。代码教程。比较微调整个网络与冻结特征提取器两种训练流程，核对训练参数范围和验证步骤。该教程不是 LoRA 实现。\href{https://docs.pytorch.org/tutorials/beginner/transfer\_learning\_tutorial.html}{在线阅读}。
-\item \textbf{什么是迁移学习（Transfer Learning）？}。知乎。中文解说。比较冻结特征与微调，记录可训练参数。标题与主题据必应索引，原页受限。\href{https://zhuanlan.zhihu.com/p/1899236885408256815}{在线阅读}。
-\item \textbf{迁移学习(Transfer Learning)概述及代码实现}。CSDN。中文博客。对照源域与目标域划分，用无迁移基线识别负迁移。标题与主题据必应索引，原页受限。\href{https://blog.csdn.net/weixin\_49272172/article/details/115791703}{在线阅读}。
-\item \textbf{第十一节 2021 - 概述领域自适应 (Domain Adaptation)}。李宏毅。bilibili。中文课程。选看第110集，对照本章分布差异与适应条件。2026年10月4日官方公开元数据显示整套课程累计播放约299.5万，并非本分集播放量。已核对目录与计数，未逐帧观看。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=110}{观看分集}。
+\item \textbf{Transfer Learning}。作者/平台：Stanford CS231n。英文课程笔记。阅读固定特征提取和微调的选择条件，配合本章的参数适配部分使用。\href{https://cs231n.github.io/transfer-learning/}{在线阅读}。
+\item \textbf{Transfer Learning for Computer Vision Tutorial}。作者/平台：PyTorch。英文代码教程。比较冻结特征提取器和全量微调流程。\href{https://docs.pytorch.org/tutorials/beginner/transfer\_learning\_tutorial.html}{在线阅读}。
+\item \textbf{什么是迁移学习（Transfer Learning）？}。知乎中文解说。对照冻结特征与微调的可训练参数范围。标题与主题沿用项目记录，原页受限。\href{https://zhuanlan.zhihu.com/p/1899236885408256815}{在线阅读}。
+\item \textbf{迁移学习(Transfer Learning)概述及代码实现}。CSDN 中文博客。对照源域与目标域划分，用无迁移基线检查负迁移。标题与主题沿用项目记录，原页受限。\href{https://blog.csdn.net/weixin\_49272172/article/details/115791703}{在线阅读}。
+\item \textbf{第十一节 2021 - 概述领域自适应 (Domain Adaptation)}。李宏毅中文课程，第110集。对照分布差异与适配条件。沿用项目课程链接，本次未逐帧核验视频。\href{https://www.bilibili.com/video/BV1Wv411h7kN/?p=110}{观看分集}。
 \end{itemize}
 \endgroup
-\paragraph{本章小结}
-迁移学习依次回答源知识是否相关、分布差异能否被估计、哪些参数应更新。重加权改变样本贡献，成立前提是正确的偏移假设和支撑覆盖。分布对齐改变表示，却必须额外保护类别语义。微调和低秩适配改变预测器，其容量与标签预算应匹配。测试时熵下降进一步说明，没有标签的自洽改进可能只是错误自信。所有路线都需要目标域证据与无迁移基线，不能以对齐损失下降代替目标风险下降。
 
-实际选方法时，先核对新旧数据的标签含义是否相同，再看目标设备有多少标签、能否使用它的无标签记录，最后选择足够解决问题的适配办法。如果系统仍需服务旧相机，更新后就要一起复测。新相机得分提高、旧相机却明显退步，不能算整个更新任务已经完成。下一章据此讨论持续学习：数据不断到来时，怎样学习新情况、保留旧能力，并控制存储和计算开销。
+\paragraph{本章小结}
+迁移学习先要确定改变的是任务、域还是两者。协变量偏移允许用输入密度比重加权。统计对齐和域对抗改变表示分布，但不能独立证明标签关系保持。冻结、微调、Adapter 和 LoRA 改变可训练参数的范围，容量越小并不自动意味着目标风险越低。测试时适配可以利用无标签输入，却需要明确预测与更新顺序。所有方法都应与无迁移基线和固定目标测试集比较，并检查负迁移。若目标数据继续到达且旧能力仍需保留，下一章的持续学习需要在迁移评价之外记录逐阶段的学习和遗忘。
