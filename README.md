@@ -73,10 +73,10 @@
 22. [预训练](./chapters/15-pretraining.tex)。
 23. [迁移学习](./chapters/16-transfer.tex)。
 24. [持续学习](./chapters/17-continual.tex)。
-25. [主动学习](./chapters/18-active.tex)。
-26. [联邦学习](./chapters/19-federated.tex)。
-27. [流形学习](./chapters/20-manifold.tex)。
-28. [元学习](./chapters/21-meta.tex)。
+25. [主动学习](./chapters/18-active.tex)：标签预算、查询策略、不确定性与批量选择，以及标注成本下的评价。
+26. [联邦学习](./chapters/19-federated.tex)：分布式数据、局部更新与服务器聚合，以及统计异质性、通信成本和隐私边界。
+27. [流形学习](./chapters/20-manifold.tex)：内在维度、邻域图与非线性降维，以及低维表示的几何含义和可视化局限。
+28. [元学习](./chapters/21-meta.tex)：任务分布、支持集与查询集、度量表示与双层优化，以及新任务适应的评价。
 
 ## 建议怎样阅读
 
