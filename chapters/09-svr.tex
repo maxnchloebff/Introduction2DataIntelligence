@@ -1,20 +1,20 @@
-\chapter{支持向量回归：误差容忍带与稀疏预测}
+\chapter{支持向量回归的误差容忍带}
 \label{chap:svr}
 \begin{quote}\small
 \textit{本章摘要。}支持向量回归允许小误差不产生损失，超过容忍带后按超出量线性计费。本章从损失定义推导松弛变量、拉格朗日对偶与支持向量，解释容忍带宽度和正则参数分别控制什么。
 \end{quote}
 
-核岭回归用平方损失处理每个残差，较大的残差会获得更大的梯度。如果温度传感器偶有异常读数，这些点可能显著牵动拟合曲线。支持向量回归（Support Vector Regression，SVR）改变损失：允许预测与观测有一定差距，超过容忍范围才计费。本章选自Theodoridis第11.8节\cite{theodoridis2015ml}，与核方法网页的SVR公式对照\cite{zheng2021kernel}。
+第\ref{chap:krr}章的核岭回归用平方损失处理每个残差，残差越大，损失对预测值的梯度绝对值越大。若温度传感器偶有异常读数，这类样本可能显著影响拟合。支持向量回归（Support Vector Regression，SVR）采用不同的代价规则。它允许预测值与观测值在一定范围内不同，只有超出容忍范围的部分才产生损失。本章选自Theodoridis第11.8节\cite{theodoridis2015ml}，与核方法网页的SVR公式对照\cite{zheng2021kernel}。
 
-\section{先定义哪些误差需要计入}
-令残差$r_i=y_i-f(\bm x_i)$，定义$\epsilon$不敏感损失（$\epsilon$-insensitive loss）
+\section{误差容忍带与不敏感损失}
+给定监督回归训练集$\{(\bm x_i,y_i)\}_{i=1}^n$，其中$\bm x_i\in\R^d$、$y_i\in\R$，模型输出实数$f(\bm x_i)$。SVR适用于允许一定预测偏差而希望模型对更大偏差按线性代价处理的回归任务。令残差$r_i=y_i-f(\bm x_i)$，定义$\epsilon$不敏感损失（$\epsilon$-insensitive loss）
 \begin{equation}
  L_\epsilon(r)=\max(0,|r|-\epsilon),\qquad\epsilon\ge0.
  \label{eq:svr-insensitive-loss}
 \end{equation}
 $\epsilon$与标签有相同单位。若标签是摄氏温度，$\epsilon=0.5$表示误差不超过$0.5$摄氏度时训练损失为零。残差为$0.2,0.8,-1.2$时，损失分别为$0,0.3,0.7$。
 
-在$r>\epsilon$与$r<-\epsilon$两侧，损失对残差的斜率分别为1与$-1$，大误差的斜率不继续增大。它对异常值的响应小于平方损失，但仍随误差线性增长，不会完全忽略极端点。它也不同于Huber损失，后者在零附近是二次曲线。$\epsilon$带是训练容忍范围，没有概率覆盖率承诺，不能称为置信区间。
+当$r>\epsilon$时，损失对残差的斜率为1。当$r< -\epsilon$时，斜率为$-1$。在边界点损失不可微，可用次梯度描述。斜率的绝对值不随误差增大，因此其尾部响应小于平方损失，但损失仍随极端误差线性增长。Huber损失则在小误差处为二次形式，在大误差处转为线性形式。$\epsilon$带只规定训练损失为零的残差范围，不提供概率覆盖率保证，因此不是置信区间。
 
 图\ref{fig:svr-tube}给出具体曲线$f(x)=x$及$\epsilon=0.5$的带。上下虚线分别是$f+\epsilon$与$f-\epsilon$，松弛量只计算带外部分。
 \begin{figure}[htbp]
@@ -36,16 +36,21 @@ $\epsilon$与标签有相同单位。若标签是摄氏温度，$\epsilon=0.5$�
 \end{figure}
 
 \section{将损失改写为约束优化}
-用$f(\bm x)=\langle\bm w,\phi(\bm x)\rangle+b$预测实数。引入$\xi_i,\xi_i^*\ge0$，分别处理观测高于上缘和低于下缘的情况：
+用$f(\bm x)=\langle\bm w,\phi(\bm x)\rangle+b$预测实数，其中$\phi(\bm x)$是特征映射，$\bm w$属于相应特征空间，$b\in\R$是不受惩罚的截距。引入非负松弛量$\xi_i,\xi_i^*$，分别度量观测高于上缘和低于下缘的超出量：
 \begin{align}
  \min_{\bm w,b,\bm\xi,\bm\xi^*}\quad
  &\tfrac12\|\bm w\|_{\mathcal H}^2+C\sum_i(\xi_i+\xi_i^*),\label{eq:svr-primal}\\
  y_i-f_i&\le\epsilon+\xi_i,\qquad
  f_i-y_i\le\epsilon+\xi_i^*,\quad \xi_i,\xi_i^*\ge0.\nonumber
 \end{align}
-这里$f_i=f(\bm x_i)$，$C>0$。固定函数时，最优松弛量为$\max(0,r_i-\epsilon)$及$\max(0,-r_i-\epsilon)$，两者之和是式\eqref{eq:svr-insensitive-loss}。因此此目标与范数惩罚加$C\sum_iL_\epsilon(r_i)$等价。$C$控制容忍带之外的损失代价，$\epsilon$决定损失开始计费的位置。
+这里$f_i=f(\bm x_i)$，$C>0$是带外误差的惩罚系数。第一条约束等价于$\xi_i\ge r_i-\epsilon$，第二条等价于$\xi_i^*\ge-r_i-\epsilon$。目标对两类松弛量都递增，因此固定函数时最优取值为
+\[
+ \xi_i=\max(0,r_i-\epsilon),\qquad
+ \xi_i^*=\max(0,-r_i-\epsilon).
+\]
+两者之和恰为式\eqref{eq:svr-insensitive-loss}中的单样本损失。故约束优化等价于$\tfrac12\|\bm w\|_{\mathcal H}^2+C\sum_{i=1}^nL_\epsilon(r_i)$。此处损失求和而非平均，若改写为平均损失，正则项与$C$的相对尺度必须同步换算。
 
-\section{对偶怎样产生正负两个系数}
+\section{正负展开系数与对偶问题}
 对两条带约束分别引入$\alpha_i,\alpha_i^*\ge0$，对非负松弛量引入$\beta_i,\beta_i^*\ge0$。拉格朗日函数为
 \begin{align}
  \mathcal L={}&\tfrac12\|\bm w\|^2+C\sum_i(\xi_i+\xi_i^*)
@@ -53,13 +58,13 @@ $\epsilon$与标签有相同单位。若标签是摄氏温度，$\epsilon=0.5$�
  &+\sum_i\alpha_i^*(f_i-y_i-\epsilon-\xi_i^*)
  -\sum_i(\beta_i\xi_i+\beta_i^*\xi_i^*).
 \end{align}
-对$\bm w,b,\xi_i,\xi_i^*$求导，得到
+对$\bm w$求导得到特征空间驻点条件。对$b$求导得到等式约束。对两类松弛量求导得到乘子上界：
 \begin{equation}
- \bm w=\sum_i(\alpha_i-\alpha_i^*)\phi(\bm x_i),\qquad
- \sum_i(\alpha_i-\alpha_i^*)=0,
- \quad C-\alpha_i-\beta_i=C-\alpha_i^*-\beta_i^*=0.
+ \bm w=\sum_{i=1}^n(\alpha_i-\alpha_i^*)\phi(\bm x_i),\qquad
+ \sum_{i=1}^n(\alpha_i-\alpha_i^*)=0,
+ \quad C-\alpha_i-\beta_i=0,\quad C-\alpha_i^*-\beta_i^*=0.
 \end{equation}
-故$0\le\alpha_i,\alpha_i^*\le C$。记$\bm a=\bm\alpha-\bm\alpha^*$，代回后得到
+因$\beta_i,\beta_i^*\ge0$，故$0\le\alpha_i,\alpha_i^*\le C$。记带符号系数$\bm a=\bm\alpha-\bm\alpha^*$，用$K_{ij}=\langle\phi(\bm x_i),\phi(\bm x_j)\rangle=k(\bm x_i,\bm x_j)$表示核矩阵。将驻点代回拉格朗日函数，得到
 \begin{equation}
  \max_{\bm\alpha,\bm\alpha^*}
  -\tfrac12\bm a^{\mathsf T}K\bm a+\bm y^{\mathsf T}\bm a
@@ -68,41 +73,42 @@ $\epsilon$与标签有相同单位。若标签是摄氏温度，$\epsilon=0.5$�
  \quad0\le\alpha_i,\alpha_i^*\le C.
  \label{eq:svr-dual}
 \end{equation}
-这里$K$是半正定训练核矩阵。原目标凸，可以选较大松弛量取得严格可行点，强对偶成立。预测为
+这里$K$是半正定训练核矩阵。原问题是凸优化问题。取$\bm w=0,b=0$并选择足够大的正松弛量，可使所有不等式约束严格成立，满足Slater条件，因此原始最优值与对偶最优值相等。预测为
 \begin{equation}
  \hat y(\bm x)=\sum_i a_i k(\bm x_i,\bm x)+b.
  \label{eq:svr-prediction}
 \end{equation}
-分类SVM用标签$y_i$乘在系数上，SVR用两个乘子的差作为带符号系数。不要把回归标签再乘到式\eqref{eq:svr-prediction}中。
+与分类SVM的展开系数$\alpha_i y_i$不同，SVR的展开系数是$\alpha_i-\alpha_i^*$。标签已通过对偶目标和约束影响这些乘子，不应再乘入式\eqref{eq:svr-prediction}。
 
 \section{支持向量与截距的计算}
-互补条件包括
+KKT条件由原始可行性、对偶可行性、驻点条件和互补松弛组成。对偶变量与约束的互补关系为
 \begin{align}
- \alpha_i(y_i-f_i-\epsilon-\xi_i)&=0,
+ \alpha_i(r_i-\epsilon-\xi_i)&=0,
  &(C-\alpha_i)\xi_i&=0,\\
- \alpha_i^*(f_i-y_i-\epsilon-\xi_i^*)&=0,
+ \alpha_i^*(-r_i-\epsilon-\xi_i^*)&=0,
  &(C-\alpha_i^*)\xi_i^*&=0.
+ \label{eq:svr-kkt-complementarity}
 \end{align}
-严格位于带内的样本满足$|r_i|<\epsilon$，两条带约束都有余量，故$\alpha_i=\alpha_i^*=0$，不进入预测展开。若$0<\alpha_i<C$，则$\xi_i=0,r_i=\epsilon$，样本在上缘。若$0<\alpha_i^*<C$，样本在下缘。带外样本的相应乘子达到$C$。在$\epsilon>0$时两条带约束不能同时活跃，故不会同时有两个正乘子。
+严格位于带内时，两条带约束均有余量，故$\alpha_i=\alpha_i^*=0$，该点不进入预测展开。若$0<\alpha_i<C$，第二个互补条件给出$\xi_i=0$，第一个条件随即给出$r_i=\epsilon$，即点在上缘。若$0<\alpha_i^*<C$，同理有$r_i=-\epsilon$，点在下缘。若$r_i>\epsilon$，则上侧松弛量$\xi_i>0$且$\alpha_i=C$。若$r_i< -\epsilon$，则下侧松弛量$\xi_i^*>0$且$\alpha_i^*=C$。当$\epsilon>0$时，同一样本不可能同时处于带的两侧，因此$\alpha_i$与$\alpha_i^*$不会同时为正。带边界上的点也可能有零系数，实际预测只由非零系数样本构成。
 
 对上缘自由支持向量$s$与下缘自由支持向量$t$，分别有
 \begin{equation}
  b=y_s-\epsilon-\sum_i a_iK_{is},\qquad
  b=y_t+\epsilon-\sum_i a_iK_{it}.
 \end{equation}
-可用多个自由支持向量平均截距。若不存在自由支持向量，需要利用KKT不等式确定截距区间。带边界上的样本在退化情形下可以有零系数，支持向量应依据非零系数定义。
+其中$K_{is}=k(\bm x_i,\bm x_s)$。对多个自由支持向量，可分别计算截距后取平均，以减小数值误差。若没有自由支持向量，可由KKT不等式确定满足条件的截距区间。具体而言，记$g_i=\sum_j a_jK_{ji}$。若$\alpha_i=0$，则$y_i-g_i\le b+\epsilon$。若$\alpha_i=C$，则$b+\epsilon\le y_i-g_i$。若$\alpha_i^*=0$，则$b-\epsilon\le y_i-g_i$。若$\alpha_i^*=C$，则$y_i-g_i\le b-\epsilon$。这些上下界共同约束$b$，数值解应在容差内满足其交集。退化情形下，恰位于带边界的样本可以有零系数，因此支持向量以非零对偶系数为准。
 
 \subsection{两点线性算例}
-取$(x_1,y_1)=(-1,-1)$、$(x_2,y_2)=(1,1)$，$\epsilon=0.2$。利用对称性可取最优截距$b=0$，目标化为
+取一维线性模型$f(x)=wx+b$，训练点为$(x_1,y_1)=(-1,-1)$和$(x_2,y_2)=(1,1)$，并令$\epsilon=0.2$。数据关于原点对称，最优解可取$b=0$。由此目标化为
 \begin{equation}
  J(w)=\tfrac12w^2+2C\max(0,|1-w|-0.2).
 \end{equation}
 在$0\le w<0.8$区间，导数为$w-2C$。在$0.8\le w\le1.2$区间，损失为零，范数最小点是$w=0.8$。其他区间不能得到更低值，因此$w=\min(2C,0.8)$。
 
-当$C>0.4$，$w=0.8$，两点分别位于容忍带边界，系数为$a_1=-0.4,a_2=0.4$，且对应正乘子小于$C$。当$C=0.1$时，$w=0.2$，两点残差绝对值为0.8，松弛量各为0.6，相应乘子达到$C$。这个例子表明，更强范数控制可以接受更多带外误差。
+当$C>0.4$时，$w=0.8$，两点的残差分别为$-0.2$和$0.2$，都落在带边界。由驻点条件$w=a_2-a_1$和等式约束$a_1+a_2=0$，得$a_1=-0.4,a_2=0.4$，对应的非零乘子为$0.4<C$。当$C=0.1$时，$w=0.2$，两点残差绝对值均为$0.8$，各自松弛量为$0.6$，相应非零乘子达到上界$C$。在$C=0.4$时，最优斜率仍为$0.8$，乘子恰好达到上界。这个算例显示，较强的范数惩罚会以更大的带外残差为代价。
 
-\section{参数选择与局限}
-输入缩放改变核距离，输出缩放则直接改变$\epsilon$的含义。应在训练折内拟合缩放统计量，并联合验证$C,\epsilon$与核尺度。较宽的带通常使更多点的损失为零，但支持向量数随完整优化变化，不能只根据带宽保证某种稀疏率。
+\section{参数选择与适用边界}
+输入缩放会改变核距离，输出缩放会改变$\epsilon$的量纲和数值含义。缩放参数只能在训练折上估计，再用于相应验证数据。应联合验证$C$、$\epsilon$与核尺度。增大$\epsilon$会扩大零损失区域，但最优函数和系数也会随之改变，因此支持向量数不一定单调下降。单凭带宽不能保证指定稀疏率。
 
 SVR减少了大误差的梯度增长，但不能防止错误标签、分布变化或高影响输入位置造成偏差。它输出点预测，不提供预测区间。若目标是条件分位数或带概率覆盖率的区间，应使用对应损失或另行校准。测试时要同时检验误差、异常读数影响和所需预测成本。
 

@@ -78,7 +78,7 @@
 \centering\small
 \caption{不同任务中的 PINN 输入、输出与方程。这里以一维传热、波动和二维流动为例。}
 \label{tab:pinn-general-problems}
-\begin{tabular}{p{0.18\linewidth}p{0.13\linewidth}p{0.17\linewidth}p{0.37\linewidth}}
+\begin{tabular}{m{0.18\linewidth}m{0.13\linewidth}m{0.17\linewidth}m{0.37\linewidth}}
 \toprule
 任务 & 输入 & 输出 & 用于训练的方程\\
 \midrule
@@ -97,7 +97,7 @@
 \end{equation}
 $\kappa$是热扩散系数。这里的$r_T$与手算例子的$r=q'+q$承担相同作用，都是检查当前函数与方程要求的差距。热传导中还可以给出初始温度、两端的温度或热流条件，把这些条件也写成误差项。
 
-更一般地，可以用$\mathcal N[q;\mu]=0$概括要满足的方程。其中，$\mathcal N$表示方程中的求导和组合运算，$\mu$表示方程参数，例如热扩散系数$\kappa$或波速$c$。确定任务后，就按相应方程构造残差，结合已知条件和可用观测形成损失。神经网络表示函数、自动微分计算导数、优化器更新参数的基本过程保持一致。
+更一般地，可以用$\mathcal N[q;\mu]=0$概括要满足的方程。其中，$\mathcal N$表示方程中的求导和组合运算，$\mu$表示方程参数，例如热扩散系数$\kappa$或波速$c$。确定任务后，就按相应方程构造残差，结合已知条件和可用观测形成损失。网络训练得到的是在所选表示、配点和损失权重下的近似解。小的离散残差不能单独保证全域解误差小，也不能保证方程参数可由当前观测唯一确定。
 
 \subsection{正问题、逆问题与本章的风场重建}
 \paragraph{正问题：已知模型与条件，求物理场。}
@@ -153,7 +153,7 @@ $A_m$是求和使用的点数，$\omega_{ma}$是权重。第一次学习时，�
 \section{用流体方程描述风速怎样变化}
 \label{sec:pinn-physics}
 
-\subsection{连续性方程：检查局部的流入和流出}
+\subsection{连续性方程与局部流量平衡}
 先考虑恒密度、不可压缩的二维流动，其连续性方程为
 \begin{equation}
  \frac{\partial u}{\partial x}+\frac{\partial v}{\partial y}=0.
@@ -167,7 +167,7 @@ $A_m$是求和使用的点数，$\omega_{ma}$是权重。第一次学习时，�
 \]
 训练时让$r_c$接近零，就在推动预测风场满足这一平衡关系。
 
-\subsection{动量方程：联系速度变化、压力和黏性}
+\subsection{动量方程中的速度变化与受力}
 连续性方程回答的是“空气的流入和流出怎样平衡”。接下来还要回答：\textbf{空气为什么会加速、减速或改变方向？}这就需要动量方程。
 
 先把一小团空气想成一个正在运动的物体。牛顿第二定律告诉我们，物体受到合力就会产生加速度。对空气也是如此：周围的压力和黏性作用会改变它的速度。把牛顿第二定律用于流体，并除以这团空气的质量，就得到“加速度等于单位质量所受的合力”这样的关系。
@@ -180,7 +180,7 @@ $A_m$是求和使用的点数，$\omega_{ma}$是权重。第一次学习时，�
  &=-\partial_y\pi+\nu(\partial_{xx}v+\partial_{yy}v).
  \label{eq:pinn-momentum}
 \end{align}
-这里$\nu$是运动黏度，单位为$\mathrm{m^2/s}$。$\pi=p/\rho$，$p$是压力，$\rho$是空气密度。两行方程分别描述$x$、$y$方向的运动。先读第一行，可以把它概括为
+这里$\nu$是运动黏度，单位为$\mathrm{m^2/s}$。$\pi=p/\rho$是单位质量压力，量纲为$\mathrm{m^2/s^2}$，其中$p$是压力，$\rho$是恒定空气密度。两行方程分别描述$x$、$y$方向的运动。该模型假设二维、不可压缩、恒黏度流动，并暂不计重力等体积力。先读第一行，可以把它概括为
 \[
  \underbrace{\partial_tu+u\partial_xu+v\partial_yu}_{\text{跟着空气团看到的加速度}}
  =\underbrace{-\partial_x\pi}_{\text{压力作用}}
@@ -345,10 +345,10 @@ $N_d$是观测条数，平均平方误差越小，预测读数与实际读数越
 
 例如想画$t=50\,\mathrm{s}$时的风场，就把这个时刻与网格上的各个$(x_i,y_i)$组合起来，逐点或成批送入网络。得到$u_i,v_i$后，计算风速大小$V_i=\sqrt{u_i^2+v_i^2}$，用颜色展示，同时用箭头表示速度方向。这样就从一组稀疏读数得到了可查看的空间分布。
 
-检查效果时，既看训练误差，也与留出的观测或参考风场比较。数据损失回答“雷达读数是否拟合得好”，参考风场对比则帮助我们查看未测区域和各个速度分量的重建效果。
+检查效果时，既看训练误差，也与未参与拟合或模型选择的观测、参考风场比较。训练数据损失只回答已用雷达读数是否拟合得好。参考风场对比可检查未测区域和速度分量的重建误差。若没有独立参考场，低方程残差和低训练误差仍不能证明真实风场已被唯一恢复。
 
 
-\section{论文案例：两束激光雷达怎样重建风机前方的风场}
+\section{双束激光雷达风场重建案例}
 \label{sec:pinn-validation}
 
 \subsection{先看任务、测点与参考风场}
@@ -371,7 +371,7 @@ Zhang 和 Zhao 在 2021 年的研究中，将 PINN 用于风机前方的时空�
 \centering\small
 \caption{论文基准算例的主要设置，整理自原文第 2.3、3.2 节与表 2\cite{zhang2021spatiotemporal}。}
 \label{tab:pinn-zhang-setup}
-\begin{tabular}{p{0.33\linewidth}p{0.58\linewidth}}
+\begin{tabular}{m{0.33\linewidth}m{0.58\linewidth}}
 \toprule
 项目 & 设置\\
 \midrule
@@ -443,13 +443,13 @@ $N_r,N_l$是本次训练取出的两组观测条数。每个预测值都在其�
  -\frac1{\mathrm{Re}}(\partial_{xx}v+\partial_{yy}v).
  \label{eq:pinn-zhang-residual}
 \end{align}
-其中$\mathrm{Re}=U_\infty D/\nu$。在$N_{\mathrm{NS}}$个配点上取残差平方的平均，得到
+其中$\mathrm{Re}=U_\infty D/\nu$，$U_\infty$是参考来流速度，$D$是参考长度，$\nu$是运动黏度。在$N_{\mathrm{NS}}$个配点上取残差平方的平均，得到
 \begin{equation}
  \mathcal L_1=\frac1{N_{\mathrm{NS}}}\sum_{j=1}^{N_{\mathrm{NS}}}
  \big[e_u(\boldsymbol\xi_j)^2+e_v(\boldsymbol\xi_j)^2\big].
  \label{eq:pinn-zhang-physics}
 \end{equation}
-论文最后采用$\mathcal L=\mathcal L_1+\mathcal L_2$训练网络。流函数构造已经满足连续性，所以物理损失中只列出两个动量残差。原文这一训练设置采用上述两类损失，没有另外列出初值损失和边界损失。
+论文最后采用$\mathcal L=\mathcal L_1+\mathcal L_2$训练网络。流函数构造在速度场足够光滑时满足连续性，所以物理损失中只列出两个动量残差。该案例明确列出的训练目标由径向数据项与域内动量残差项组成，没有另外列出初值损失和边界损失。这一设置依赖数据覆盖和所选方程，不能视为显式施加了边界条件。
 
 把这一过程连起来看：一批坐标经过网络得到$\psi,\pi$，求导得到$u,v$。接着，在观测点计算径向误差，在配点计算动量残差。将两类误差相加，再更新同一组参数。训练使用的风速标签来自两束波束，压力和流函数由训练过程一同确定。
 
@@ -480,7 +480,7 @@ $N_r,N_l$是本次训练取出的两组观测条数。每个预测值都在其�
 \centering\small
 \caption{部分算例的全场重建误差，整理自 Zhang 和 Zhao\cite{zhang2021spatiotemporal}原文表 3。各行采用同一 MRMSE 计算方式。}
 \label{tab:pinn-zhang-results}
-\begin{tabular}{p{0.46\linewidth}rr}
+\begin{tabular}{m{0.46\linewidth}rr}
 \toprule
 测量或来流设置 & 风速误差（$\mathrm{m/s}$） & 风向误差（$^\circ$）\\
 \midrule
@@ -545,7 +545,7 @@ Wang 等介绍了一种基于梯度大小的自适应加权方法\cite{wang2023e
  \widehat\lambda_q=\frac{\sum_j g_j}{g_q}.
  \label{eq:pinn-gradient-balance}
 \end{equation}
-$\nabla_\theta\mathcal L_q$是该项损失对全部网络参数的梯度，$g_q$表示它的整体大小。梯度较小的项会获得较大的权重，使各项对参数更新的推动幅度更接近。
+$\nabla_\theta\mathcal L_q$是该项损失对全部网络参数的梯度，$g_q$表示它的整体大小。梯度较小的项会获得较大的权重，使各项对参数更新的推动幅度更接近。实际实现需对很小的$g_q$加入数值稳定项或裁剪权重，否则当$g_q=0$时该定义无效，极小梯度也会产生过大的权重。
 
 例如只有数据和物理两项时，若$g_d=0.01$、$g_f=1$，按上式得到$\widehat\lambda_d=101$、$\widehat\lambda_f=1.01$。加权后的梯度大小均为$1.01$。这个例子说明，权重是在协调各项任务参与训练的程度。
 
@@ -707,7 +707,7 @@ XPINNs 的另一个特点是不同区域可以采用不同配置。变化平缓�
 \centering\small
 \caption{风场 PINN 中常见的训练现象与改进思路。这里给出方法选择的教学对应关系。}
 \label{tab:pinn-optimization-guide}
-\begin{tabular}{p{0.29\linewidth}p{0.29\linewidth}p{0.30\linewidth}}
+\begin{tabular}{m{0.29\linewidth}m{0.29\linewidth}m{0.30\linewidth}}
 \toprule
 观察到的现象 & 可以优先检查或尝试 & 主要调整对象\\
 \midrule

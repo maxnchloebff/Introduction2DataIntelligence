@@ -1,15 +1,15 @@
-\chapter{从一个简单模型开始：线性回归}
+\chapter{线性回归与概率预测}
 
 \begin{quote}\small
-\textit{本章摘要。}本章用线性回归，把上一章的数据、任务、模型、目标函数与正则化落实为可以计算的例子。我们从四个角度看同一个回归问题：直接预测数值；在固定参数下预测标签的条件分布；用参数分布表达有限数据带来的不确定性；用高斯过程在函数空间中直接表达函数的不确定性。平方损失、高斯似然、岭惩罚、高斯先验与核函数由此联系起来，同时区分最大后验点估计、贝叶斯线性回归和高斯过程的预测分布。
+\textit{本章摘要。}本章以数值回归为共同问题，先由平方损失推导正规方程，区分参数唯一性与数值敏感性。随后讨论矩阵分解求解和参数正则化。在独立同方差高斯观测假设下，极大似然估计与最小二乘具有相同的权重最优解。加入高斯先验后，可以得到最大后验估计和完整权重后验。最后利用核函数转到函数值的联合分布，说明高斯过程怎样区分潜在函数与带噪观测的预测不确定性。
 \end{quote}
 
 上一章介绍了许多概念，但只知道名称还不足以建立一个模型。例如，输入和标签究竟怎样排成数据？参数怎样从目标函数中求出来？输出一个概率，是否就意味着参数也是随机的？本章沿着“问题形式化、参数估计、贝叶斯线性回归、投影解释”的线索组织推导\,\cite{deisenroth2020mml}，但用本书的工业预测任务重新表述这些关系。
 
 我们始终围绕同一个回归问题展开。先把预测写成输入与权重的加权和，再把它看作条件分布的均值，随后用权重的后验分布表达有限数据带来的不确定性，最后不再显式保存有限维权重，而是在函数空间中用协方差函数描述任意输入处的联合不确定性。这样既能看清四种视角之间的联系，也能看清它们对模型结构和计算方式作出的不同选择。
 
-\section{先固定数据和任务}
-一个带标签样本由输入$\bm x_i$和对应的标签$y_i$组成，其中$i$是样本编号。输入是预测时可用的信息，用$d$个数值特征组成的列向量表示；标签是希望根据这些信息预测的目标量。本章讨论实数值的回归任务，因此
+\section{数据与回归任务}
+一个带标签样本由输入$\bm x_i$和对应的标签$y_i$组成，其中$i$是样本编号。输入是预测时可用的信息，用$d$个数值特征组成的列向量表示。标签是希望根据这些信息预测的目标量。本章讨论实数值的回归任务，因此
 \begin{equation}
  \bm x_i=(x_{i1},\ldots,x_{id})^{\mathsf T}\in\R^d,
  \qquad y_i\in\R.
@@ -22,7 +22,7 @@
 \end{equation}
 训练的目的是根据这些已知配对学习从输入到目标的关系，再对新输入预测尚未知的标签。这属于监督学习。对未来量的预测，输入只能包含预测时刻已经可用的信息，未来的目标观测只能作为历史样本的标签，不能提前放入输入。
 
-\paragraph{例：根据当前读数预测下一小时温度。}
+\paragraph{下一小时温度预测。}
 在每个历史预测时刻，记录设备当前的温度和振动，并将下一小时实际测得的温度作为标签：
 \begin{equation}
  \bm x_i=(\text{当前温度}_i,\text{当前振动}_i)^{\mathsf T}\in\R^2,
@@ -30,29 +30,30 @@
 \end{equation}
 这个例子中$d=2$，每一对$(\bm x_i,y_i)$对应一次历史预测及其后续观测。训练完成后，给出新的当前温度和振动读数，模型便输出对下一小时温度的预测。
 
-\paragraph{模型结构与参数各是什么。}
+\paragraph{模型结构与参数。}
 回归模型先写成
 \begin{equation}
  f_{\bm w,b}(\bm x)=\bm w^{\mathsf T}\bm x+b.
 \end{equation}
-“加权求和再加截距”构成模型结构，$\bm w$和$b$是要从数据中学习的参数。输入$\bm x$与历史标签$y$属于数据。例如，两个权重为$0.8,0.2$、截距为$1$时，预测就是$0.8x_1+0.2x_2+1$；训练过程确定这些参数，已经观测到的读数则保持不变。
+这里$\bm x\in\R^d$、$\bm w\in\R^d$且$b\in\R$。
+“加权求和再加截距”构成模型结构，$\bm w$和$b$是要从数据中学习的参数。输入$\bm x$与历史标签$y$属于数据。例如，两个权重为$0.8,0.2$、截距为$1$时，预测就是$0.8x_1+0.2x_2+1$。训练过程确定这些参数，已经观测到的读数则保持不变。
 
-\paragraph{基函数：先表示输入，再在线性空间中学习。}
-更一般地，可先将原始输入映射为$M$个预先规定的特征（basis functions，基函数）
+\paragraph{基函数与输入表示。}
+更一般地，可先选择$M$个预先规定的基函数（basis functions），把原始输入映射为特征向量
 \begin{equation}
  \bm\phi(\bm x)=(\phi_1(\bm x),\ldots,\phi_M(\bm x))^{\mathsf T},
  \qquad f_{\bm w}(\bm x)=\bm w^{\mathsf T}\bm\phi(\bm x).
  \label{eq:linear-basis-function-model}
 \end{equation}
-这时“线性”始终是指$f_{\bm w}$对参数$\bm w$线性，并不要求$\phi_j$对原始输入线性。对一维温度读数$x$，可取$\bm\phi(x)=(1,x,x^2)^{\mathsf T}$，得到二次曲线；对振动窗口，可将均方根、峭度、频带能量或某个频率分量作为不同的$\phi_j$。基函数负责规定模型能够看见和组合什么模式，权重负责根据标签决定这些模式各占多大作用。若基函数由训练数据本身估计，例如标准化均值、PCA 投影或特征选择规则，则它们也必须只在训练部分拟合，再应用于验证和测试数据。
+这时“线性”始终是指$f_{\bm w}$对参数$\bm w$线性，并不要求$\phi_j$对原始输入线性。对一维温度读数$x$，可取$\bm\phi(x)=(1,x,x^2)^{\mathsf T}$，得到二次曲线。对振动窗口，可将均方根、峭度、频带能量或某个频率分量作为不同的$\phi_j$。基函数负责规定模型能够看见和组合什么模式，权重负责根据标签决定这些模式各占多大作用。若基函数由训练数据本身估计，例如标准化均值、主成分分析（Principal Component Analysis，PCA）投影或特征选择规则，则它们也必须只在训练部分拟合，再应用于验证和测试数据。
 
-给定$n$个输入后，式\eqref{eq:linear-basis-function-model}形成的设计矩阵为$\Phi\in\R^{n\times M}$，其中$\Phi_{ij}=\phi_j(\bm x_i)$。为避免符号重复，后续仍用$X$表示这个已经形成的设计矩阵。因此，改变原始特征或加入非线性基函数，改变的是$X$的列；最小二乘、岭回归和贝叶斯线性回归的参数推导仍沿用同一套形式。线性模型也因此能够成为许多复杂表示的基础层。
+给定$n$个输入后，式\eqref{eq:linear-basis-function-model}形成设计矩阵$\Phi\in\R^{n\times M}$，其中$\Phi_{ij}=\phi_j(\bm x_i)$。从这里开始，统一用$X$表示实际进入线性回归计算的设计矩阵，其列数记为$p$。原始特征模型中$p=d$，基函数模型中$p=M$。参数向量$\bm w\in\R^p$，使$X\bm w\in\R^n$。改变原始特征或加入基函数会改变$X$及$p$，最小二乘、岭回归和贝叶斯线性回归仍使用相同的矩阵推导。
 
-以下推导都可以自然包含截距。令增广特征为$\tilde{\bm x}_i=(\bm x_i^{\mathsf T},1)^{\mathsf T}$、增广参数为$\tilde{\bm w}=(\bm w^{\mathsf T},b)^{\mathsf T}$，则$\tilde{\bm w}^{\mathsf T}\tilde{\bm x}_i=\bm w^{\mathsf T}\bm x_i+b$。也就是说，只需在设计矩阵$X$中增加一列全为$1$的固定特征，后续的最小二乘、似然和后验推导无需改变。为使符号简洁，后文仍用$X,\bm w$表示已经增广后的矩阵和参数向量；若加入岭惩罚或高斯先验，通常将截距对应坐标排除在惩罚或收缩之外。
+以下推导都可以自然包含截距。令增广特征为$\tilde{\bm x}_i=(\bm x_i^{\mathsf T},1)^{\mathsf T}$、增广参数为$\tilde{\bm w}=(\bm w^{\mathsf T},b)^{\mathsf T}$，则$\tilde{\bm w}^{\mathsf T}\tilde{\bm x}_i=\bm w^{\mathsf T}\bm x_i+b$。在设计矩阵中增加一列全为$1$的特征，就能把截距并入参数向量。后文用$X$表示当前模型的设计矩阵，用$p$表示它的列数，故$X\in\R^{n\times p}$且$\bm w\in\R^p$。若将截距并入参数，$p$会比其余特征数多$1$。岭惩罚或高斯先验可以对截距采用不同的规则，因此不应自动收缩这一坐标。
 
-\section{第一种视角：确定性判别模型}
-\subsection{线性回归：直接输出一个数}
-给定一组参数，模型直接输出$\hat y_i=\bm w^{\mathsf T}\bm x_i$。这里的“确定性”只描述输入和参数固定时输出的状态；真实观测仍可能含有噪声，训练数据改变后参数也会随之改变。
+\section{确定性线性预测与参数估计}
+\subsection{平方损失与正规方程}
+本节将进入设计矩阵的特征向量也简记为$\bm x_i\in\R^p$。使用基函数时，它代表基函数向量，使用截距时则包含常数坐标。给定一组参数，模型直接输出$\hat y_i=\bm w^{\mathsf T}\bm x_i$。这里的“确定性”只描述输入和参数固定时输出的状态。真实观测仍可能含有噪声，训练数据改变后参数也会随之改变。
 
 模型已经规定了允许怎样预测，还需要目标函数规定怎样比较预测。选择平方损失
 \begin{equation}
@@ -66,10 +67,10 @@
 \begin{equation}
  J(w)=\frac12[(w-2)^2+(2w-3)^2].
 \end{equation}
-求导得到$J'(w)=(w-2)+2(2w-3)=5w-8$。令导数为零，得到$\hat w=8/5$，两个预测分别为$1.6$和$3.2$。它没有逐点穿过观测，却使总平方误差最小。这就是从数据、模型和损失走到参数估计的完整过程。
+求导得到$J'(w)=(w-2)+2(2w-3)=5w-8$。令导数为零，得到$\hat w=8/5$，两个预测分别为$1.6$和$3.2$。它没有逐点穿过观测，却使总平方误差最小。这给出了从数据、模型和损失求出参数的过程。
 
-\paragraph{线性回归最小二乘的矩阵表示——正规方程。}
-把每个$\bm x_i^{\mathsf T}$排成设计矩阵$X\in\R^{n\times d}$的一行，将标签排成$\bm y\in\R^n$，则
+\paragraph{最小二乘的矩阵表示。}
+把每个$\bm x_i^{\mathsf T}$排成设计矩阵$X\in\R^{n\times p}$的一行，将标签排成$\bm y\in\R^n$，则
 \begin{equation}
  J(\bm w)=\frac12\|X\bm w-\bm y\|_2^2.\label{eq:linear-least-squares}
 \end{equation}
@@ -77,38 +78,38 @@
 \begin{equation}
  X^{\mathsf T}X\hat{\bm w}=X^{\mathsf T}\bm y.\label{eq:linear-normal-equation}
 \end{equation}
-当$X$的列线性无关时，$X^{\mathsf T}X$可逆，解唯一。若两个特征列完全相同，数据只能确定它们系数的和，不能区分各自的系数，这称为参数不可识别：不同参数取值产生相同的观测预测关系。公式可以写成逆矩阵形式，但实际计算通常用矩阵分解求解，而不显式求逆。
+当$X$的列线性无关时，$X^{\mathsf T}X$可逆，最小二乘解唯一。若$X$有零空间方向，不同参数会产生相同的训练预测，这些参数无法由当前设计矩阵区分。特别地，若两列完全相同，训练数据只能确定相应系数的和。这里讨论的是参数在当前训练设计下的可识别性，不能单凭它断定任意更大总体模型中的参数可识别。正规方程也可写成逆矩阵形式，但实际计算通常用矩阵分解求解，而不显式求逆。
 
-这个条件也把样本数与特征数的关系说清楚了。对$X\in\R^{n\times d}$，$X^{\mathsf T}X$可逆当且仅当$X$有满列秩，即$\operatorname{rank}(X)=d$。因此$n\geq d$只是可逆的必要条件，并非充分条件：即使样本数不少于特征数，重复或线性相关的特征列仍会使矩阵不可逆。反过来，若$n<d$，则
+这个条件也把样本数与特征数的关系说清楚了。对$X\in\R^{n\times p}$，$X^{\mathsf T}X$可逆当且仅当$X$有满列秩，即$\operatorname{rank}(X)=p$。因此$n\geq p$只是可逆的必要条件，并非充分条件：即使样本数不少于特征数，重复或线性相关的特征列仍会使矩阵不可逆。反过来，若$n<p$，则
 \begin{equation}
- \operatorname{rank}(X)\leq n<d.
+ \operatorname{rank}(X)\leq n<p.
 \end{equation}
-于是$X$不可能满列秩，必存在非零向量$\bm v$满足$X\bm v=\bm0$，从而$X^{\mathsf T}X\bm v=\bm0$；所以$X^{\mathsf T}X$必定不可逆。直观地说，参数个数多于训练样本时，仅凭这些样本无法唯一确定每个权重。
+于是$X$不可能满列秩，必存在非零向量$\bm v$满足$X\bm v=\bm0$，从而$X^{\mathsf T}X\bm v=\bm0$。所以$X^{\mathsf T}X$必定不可逆。直观地说，参数个数多于训练样本时，仅凭这些样本无法唯一确定每个权重。
 
-\paragraph{不可逆与病态：解是否唯一，与解是否稳定。}
-正规方程的矩阵不可逆，意味着参数不能由数据唯一确定，并不意味着最小二乘问题无解。若特征列完全共线，或样本数不足以约束所有参数，$X$就不满列秩。此时若$\hat{\bm w}$是一个最小二乘解，则对任意满足$X\bm v=\bm0$的向量$\bm v$，$\hat{\bm w}+\bm v$也给出相同的训练集预测。问题在于数据不能唯一识别参数，而非最小二乘目标没有最优解。可以删除冗余特征、重新参数化，或用 Moore--Penrose 伪逆选取最小范数解$X^+\bm y$.
+\paragraph{解的唯一性与数值敏感性。}
+正规方程的矩阵不可逆，意味着参数不能由数据唯一确定，并不意味着最小二乘问题无解。若特征列完全共线，或样本数不足以约束所有参数，$X$就不满列秩。此时若$\hat{\bm w}$是一个最小二乘解，则对任意满足$X\bm v=\bm0$的向量$\bm v$，$\hat{\bm w}+\bm v$也给出相同的训练集预测。问题在于数据不能唯一识别参数，而非最小二乘目标没有最优解。可以删除冗余特征、重新参数化，或用穆尔--彭罗斯伪逆$X^+$选取最小范数解$X^+\bm y$。
 
 与此同时，更容易被忽略的是：$X$满列秩，解在数学上唯一，但特征近似共线，使某些参数方向只受到数据很弱的约束。令$A=X^{\mathsf T}X$，其特征分解为
 \begin{equation}
- A=Q\operatorname{diag}(\mu_1,\ldots,\mu_d)Q^{\mathsf T},
+ A=Q\operatorname{diag}(\mu_1,\ldots,\mu_p)Q^{\mathsf T},
  \qquad \mu_j>0,\qquad Q^{\mathsf T}Q=I.
 \end{equation}
 记$Q$的第$j$列为$\bm q_j$，则
 \begin{equation}
- A^{-1}=\sum_{j=1}^d\frac1{\mu_j}\bm q_j\bm q_j^{\mathsf T}.
+ A^{-1}=\sum_{j=1}^p\frac1{\mu_j}\bm q_j\bm q_j^{\mathsf T}.
 \end{equation}
 固定$X$，若正规方程的右端$\bm b=X^{\mathsf T}\bm y$受到扰动$\delta\bm b$，参数变化恰好为
 \begin{equation}
  \delta\bm w=A^{-1}\delta\bm b
- =\sum_{j=1}^d\frac{\bm q_j^{\mathsf T}\delta\bm b}{\mu_j}\bm q_j.
+ =\sum_{j=1}^p\frac{\bm q_j^{\mathsf T}\delta\bm b}{\mu_j}\bm q_j.
  \label{eq:linear-ill-conditioned-perturbation}
 \end{equation}
-因此，小特征值方向上的右端扰动会被放大$1/\mu_j$倍。标签若发生小扰动$\delta\bm y$，右端就相应变化为$\delta\bm b=X^{\mathsf T}\delta\bm y$。当矩阵病态时，标签中的小扰动也可能使求出的权重发生很大变化。实际标签通常含有测量误差、记录误差或其他观测噪声，不能把它们当作完全精确的数值。因此，\emph{矩阵可逆只保证解唯一，不保证解可靠；病态矩阵会使参数估计对标签噪声敏感。}
+因此，小特征值方向上的右端扰动会被放大$1/\mu_j$倍。标签若发生小扰动$\delta\bm y$，右端就相应变化为$\delta\bm b=X^{\mathsf T}\delta\bm y$。当矩阵病态时，标签中的小扰动也可能使求出的权重发生很大变化。实际标签通常含有测量误差、记录误差或其他观测噪声，不能把它们当作完全精确的数值。因此，\emph{矩阵可逆只保证解唯一，不保证解可靠。病态矩阵会使参数估计对标签噪声敏感。}
 
-\paragraph{为什么正规方程也是正交投影条件。}
+\paragraph{正规方程的正交投影解释。}
 所有可由该模型给出的训练集预测向量构成$X$的列空间
 \begin{equation}
- \mathcal C(X)=\{X\bm w:\bm w\in\R^d\}\subseteq\R^n.
+ \mathcal C(X)=\{X\bm w:\bm w\in\R^p\}\subseteq\R^n.
 \end{equation}
 最小二乘的搜索范围限定在$\mathcal C(X)$：预测向量必须来自这个列空间，而不能在$\R^n$中任意选取一个接近$\bm y$的向量。令残差为$\bm r=\bm y-X\hat{\bm w}$。从预测向量$X\hat{\bm w}$沿列空间中的任意方向$X\bm v$作一个微小移动，平方残差不能在一阶继续下降，因此
 \begin{equation}
@@ -117,16 +118,16 @@
  =-\bm v^{\mathsf T}X^{\mathsf T}\bm r
  \quad\text{对任意 }\bm v.
 \end{equation}
-故$X^{\mathsf T}\bm r=0$，这就是式\eqref{eq:linear-normal-equation}。从几何上看，拟合向量$X\hat{\bm w}$是$\bm y$到列空间的正交投影，残差垂直于每一列特征。若$X$秩不足，不同权重可生成同一个投影向量；因此训练集上的最佳预测唯一，但参数表示未必唯一。选择最小范数解$X^+\bm y$，是在这些同样拟合训练数据的参数中选取一个代表，不改变最优的训练拟合。这里有两个需要分别观察的问题：数据能否唯一确定参数，以及求出的参数对扰动是否稳定。下面先说明实际软件怎样求解这个线性最小二乘问题，再在拟合要求之外加入对参数的偏好，看看它怎样缓解病态情况下参数对标签噪声的敏感性。
+故$X^{\mathsf T}\bm r=0$，这就是式\eqref{eq:linear-normal-equation}。从几何上看，拟合向量$X\hat{\bm w}$是$\bm y$到列空间的正交投影，残差垂直于每一列特征。若$X$秩不足，不同权重可生成同一个投影向量。因此训练集上的最佳预测唯一，但参数表示未必唯一。选择最小范数解$X^+\bm y$，是在这些同样拟合训练数据的参数中选取一个代表，不改变最优的训练拟合。这里有两个需要分别观察的问题：数据能否唯一确定参数，以及求出的参数对扰动是否稳定。下面先说明实际软件怎样求解这个线性最小二乘问题，再在拟合要求之外加入对参数的偏好，看看它怎样缓解病态情况下参数对标签噪声的敏感性。
 
-\subsection{实际计算：用矩阵分解解方程，而不是求逆}
+\subsection{最小二乘的数值求解}
 正规方程给出了一个清晰的数学条件，但它不是计算机实现线性回归时的首选操作流程。若直接写成
 \begin{equation}
  \hat{\bm w}=(X^{\mathsf T}X)^{-1}X^{\mathsf T}\bm y,
 \end{equation}
-就需要显式构造逆矩阵。实际数值线性代数中通常只需解线性方程组：给定矩阵$A$和右端$\bm b$，求满足$A\bm w=\bm b$的$\bm w$，而不计算$A^{-1}$。原因有三点：求逆通常需要更多运算和内存；数值误差会被不必要地放大；得到逆矩阵也没有为后续预测提供额外好处。
+就需要显式构造逆矩阵。实际数值线性代数中通常只需解线性方程组：给定矩阵$A$和右端$\bm b$，求满足$A\bm w=\bm b$的$\bm w$，而不计算$A^{-1}$。原因有三点：求逆通常需要更多运算和内存。数值误差会被不必要地放大。得到逆矩阵也没有为后续预测提供额外好处。
 
-\paragraph{Cholesky：适合已经形成的正规方程。}
+\paragraph{正规方程的Cholesky求解。}
 当$X$满列秩时，$A=X^{\mathsf T}X$是对称正定矩阵，可以分解为
 \begin{equation}
  A=LL^{\mathsf T},
@@ -137,15 +138,15 @@
  \qquad
  L^{\mathsf T}\hat{\bm w}=\bm z.
 \end{equation}
-三角方程可以从前往后、再从后往前代入，整个过程不需要求逆。不过，形成$X^{\mathsf T}X$会使条件数大致平方：$\kappa(X^{\mathsf T}X)=\kappa(X)^2$。因此，Cholesky适合规模较小且已经确认数值条件良好的问题，不是普通最小二乘的默认首选。
+三角方程可以从前往后、再从后往前代入，整个过程不需要求逆。不过，在二范数下，形成$X^{\mathsf T}X$会使条件数严格平方，即$\kappa_2(X^{\mathsf T}X)=\kappa_2(X)^2$。因此，Cholesky适合规模较小且已经确认数值条件良好的问题，不是普通最小二乘的默认首选。
 
-\paragraph{QR：通常的最小二乘默认方法。}
-对$X$直接作QR分解
+\paragraph{满列秩问题的QR求解。}
+当$n\geq p$且$X$满列秩时，对$X$作简化QR分解
 \begin{equation}
  X=QR,
- \qquad Q^{\mathsf T}Q=I,
+ \qquad Q\in\R^{n\times p},\quad R\in\R^{p\times p},\quad Q^{\mathsf T}Q=I_p,
 \end{equation}
-其中$Q$的列正交，$R$是上三角矩阵。由最小二乘的正交投影条件，先计算
+其中$R$是可逆的上三角矩阵。由最小二乘的正交投影条件，先计算
 \begin{equation}
  Q^{\mathsf T}\bm y,
 \end{equation}
@@ -155,12 +156,12 @@
 \end{equation}
 QR不必显式形成$X^{\mathsf T}X$，所以通常比“先构造正规方程再求解”更稳定。实际库一般使用Householder变换，而不是逐列手工构造$Q$，因为Householder变换能在保持正交性的同时减少舍入误差。
 
-\paragraph{SVD：处理病态或秩不足问题。}
+\paragraph{病态或秩不足问题的SVD求解。}
 若特征高度相关、列不满秩，或者需要判断哪些方向实际上由数据支持，可使用奇异值分解
 \begin{equation}
  X=U\Sigma V^{\mathsf T}.
 \end{equation}
-若奇异值为$\sigma_j$，最小二乘解可写为
+这里$U\in\R^{n\times n}$、$V\in\R^{p\times p}$且$\Sigma\in\R^{n\times p}$。若奇异值为$\sigma_j$，数值求解时可使用
 \begin{equation}
  \hat{\bm w}=V\Sigma^+U^{\mathsf T}\bm y,
  \qquad
@@ -169,10 +170,10 @@ QR不必显式形成$X^{\mathsf T}X$，所以通常比“先构造正规方程�
  0,&\sigma_j\leq\text{容差}.
  \end{cases}
 \end{equation}
-若只将零奇异值对应的项置零，该表达式给出原问题的最小范数解。若还截断非零的小奇异值，就改变了估计规则，得到的是截断SVD解，未必是原问题的最小二乘解。SVD的计算成本通常高于QR，但能直接显示各方向的奇异值，适合诊断病态性和处理秩不足。这里的“容差”是数值判据，不是把小奇异值方向无条件当成真实无关；阈值仍应结合尺度、噪声和验证结果选择。
+若只将零奇异值对应的项置零，该表达式给出原问题的最小范数解。若还截断非零的小奇异值，就改变了估计规则，得到的是截断SVD解，未必是原问题的最小二乘解。SVD的计算成本通常高于QR，但能直接显示各方向的奇异值，适合诊断病态性和处理秩不足。这里的“容差”是数值判据，不是把小奇异值方向无条件当成真实无关。阈值仍应结合尺度、噪声和验证结果选择。
 
-\paragraph{大规模问题：迭代法。}
-当$X$稀疏、样本或特征数量很大时，软件可能不显式存储分解，而使用LSQR（Least Squares QR，最小二乘QR）和LSMR（Least Squares Minimal Residual，最小残差最小二乘）等迭代方法，通过计算$X\bm v$和$X^{\mathsf T}\bm u$逐步逼近最小二乘解。若求解对称正定的岭回归系统，也可使用共轭梯度法。迭代法需要设置停止条件，并监控残差、迭代次数和验证集表现；它不是因为“不能求逆”才使用，而是为了避免大规模矩阵分解的时间和内存成本。
+\paragraph{大规模问题的迭代求解。}
+当$X$稀疏、样本或特征数量很大时，软件可能不显式存储分解，而使用LSQR（Least Squares QR，最小二乘QR）和LSMR（Least Squares Minimal Residual，最小残差最小二乘）等迭代方法，通过计算$X\bm v$和$X^{\mathsf T}\bm u$逐步逼近最小二乘解。若求解对称正定的岭回归系统，也可使用共轭梯度法。迭代法需要设置停止条件，并监控残差、迭代次数和验证集表现。它不是因为“不能求逆”才使用，而是为了避免大规模矩阵分解的时间和内存成本。
 
 \paragraph{岭回归的数值实现。}
 岭回归的方程为
@@ -189,30 +190,30 @@ QR不必显式形成$X^{\mathsf T}X$，所以通常比“先构造正规方程�
 
 这些方法对应不同的计算条件。普通最小二乘可优先考虑QR，需要诊断数值秩或处理秩不足时可使用SVD。已经形成且条件良好的对称正定系统适合Cholesky，超大规模或稀疏问题则适合相应的迭代法。实现时应调用最小二乘或线性方程求解接口，以避免不必要的显式求逆。求解后还应检查残差$\|X\hat{\bm w}-\bm y\|_2$、数值秩和验证集误差，不能只因为程序返回了一个向量就认为结果可靠。
 
-\subsection{正则化：在拟合之外加入偏好}
+\subsection{参数正则化与变量选择}
 只追求训练误差小，可能得到对数据扰动敏感的权重。岭回归在平方损失之外加入二次惩罚\cite{hoerl1970ridge}：
 \begin{equation}
  J_\lambda(\bm w)=\frac12\|X\bm w-\bm y\|_2^2
  +\frac\lambda2\|\bm w\|_2^2,\qquad\lambda\geq0.\label{eq:linear-ridge-objective}
 \end{equation}
-第一项要求解释数据，第二项在拟合效果相近时偏好较小的权重。与前面用伪逆从原有最小二乘解中选取最小范数代表不同，有限强度的岭惩罚改变了优化目标，通常也改变最优的训练拟合。因此，岭惩罚是为了控制参数而引入的建模选择；矩阵不可逆时，可以根据问题目标决定是否采用它。对参数求导，得到
+第一项要求解释数据，第二项惩罚权重向量的平方范数。它在拟合效果相近时偏好较小的权重，但其含义依赖特征单位。与前面用伪逆从原有最小二乘解中选取最小范数代表不同，有限强度的岭惩罚改变了优化目标，通常也改变最优的训练拟合。因此，岭惩罚是为了控制参数而引入的建模选择。矩阵不可逆时，可以根据问题目标决定是否采用它。对参数求导，得到
 \begin{equation}
  (X^{\mathsf T}X+\lambda I)\hat{\bm w}_\lambda=X^{\mathsf T}\bm y,
 \end{equation}
-其中$I$是$d\times d$单位矩阵。$\lambda>0$时，无截距模型的这个解唯一，即使特征列相关也可以求出。
+其中$I=I_p$是$p\times p$单位矩阵。只要$\lambda>0$且所有坐标都受惩罚，这个解就唯一，即使特征列相关也成立。若不惩罚截距，应把$I_p$改成相应坐标为零的对角惩罚矩阵，此时需另行核对唯一性。
 
 岭回归的作用不仅是让矩阵可逆，更是在数据约束薄弱的方向上抑制过大的权重。若所有坐标均受惩罚，$X^{\mathsf T}X+\lambda I$的特征值为$\mu_j+\lambda$，求解时相应的放大因子从$1/\mu_j$变为$1/(\mu_j+\lambda)$，从而减弱小特征值方向上的噪声放大。但它通过改变估计目标换取稳定性，会引入收缩偏差。若截距不受惩罚，上述统一平移所有特征值的结论不直接适用，可先中心化数据，再对特征权重讨论这一结论。
 
-\paragraph{Lasso：用$\ell_1$惩罚实现变量选择。}
+\paragraph{Lasso的稀疏系数。}
 Lasso（Least Absolute Shrinkage and Selection Operator，最小绝对收缩与选择算子）使用绝对值惩罚：
 \begin{equation}
  J_{\mathrm{lasso}}(\bm w)=\frac12\|X\bm w-\bm y\|_2^2+\lambda\|\bm w\|_1,
- \qquad \|\bm w\|_1=\sum_{j=1}^d|w_j|.
+ \qquad \|\bm w\|_1=\sum_{j=1}^p|w_j|.
  \label{eq:linear-lasso-objective}
 \end{equation}
 $\ell_1$惩罚在零点不可微，其次梯度条件允许某些$w_j$恰好等于零，因此Lasso不仅收缩系数，还能产生稀疏模型。它适合特征很多、希望进行变量筛选的场景，但当特征高度相关时，可能任意保留其中一列而丢弃其他列，选择结果会对数据扰动敏感。Lasso通常不能像岭回归那样通过一个线性方程组直接求解，而使用坐标下降、近端梯度或其他凸优化方法。
 
-\paragraph{Elastic Net：在稀疏与稳定之间折中。}
+\paragraph{弹性网络的组合惩罚。}
 Elastic Net（弹性网络）同时加入$\ell_1$和$\ell_2$惩罚：
 \begin{equation}
  J_{\mathrm{EN}}(\bm w)=\frac12\|X\bm w-\bm y\|_2^2
@@ -222,50 +223,50 @@ Elastic Net（弹性网络）同时加入$\ell_1$和$\ell_2$惩罚：
 \end{equation}
 $\ell_1$项鼓励零系数，$\ell_2$项缓解共线特征之间的不稳定性，并倾向于让相关特征成组保留。$\lambda_1=0$时退化为岭回归，$\lambda_2=0$时退化为Lasso。两个超参数必须在验证数据上选择，不能只根据训练误差决定。
 
-\paragraph{Group Lasso：按组进行结构化选择。}
+\paragraph{Group Lasso的分组选择。}
 当特征天然分成组，例如一个类别变量展开出的哑变量、同一传感器产生的一组频域特征，可以使用Group Lasso：
 \begin{equation}
  J_{\mathrm{group}}(\bm w)=\frac12\|X\bm w-\bm y\|_2^2
  +\lambda\sum_{g=1}^G\alpha_g\|\bm w_g\|_2.
  \label{eq:linear-group-lasso-objective}
 \end{equation}
-其中$\bm w_g$是第$g$组系数，$\alpha_g$用于校正不同组的大小。该惩罚倾向于让整组系数同时为零，因此比普通Lasso更符合“选择或删除一个特征组”的先验结构。组内若还需要进一步稀疏，可以使用稀疏组Lasso，同时加入组级$\ell_2$范数和元素级$\ell_1$范数。
+这里$G$是预先规定的组数，各组互不重叠且覆盖全部受惩罚坐标。$\bm w_g$是第$g$组系数，$\lambda\geq0$控制总体惩罚强度，$\alpha_g>0$是组权重。常取$\alpha_g$为组内系数个数的平方根，以减轻组大小不同造成的选择偏向。该惩罚倾向于让整组系数同时为零，因此比普通Lasso更符合“选择或删除一个特征组”的先验结构。组内若还需要进一步稀疏，可以使用稀疏组Lasso，同时加入组级$\ell_2$范数和元素级$\ell_1$范数。
 
-\paragraph{非凸惩罚：减少过度收缩。}
-Lasso对较大的系数仍施加线性增长的惩罚，可能把真正重要的系数收缩得过小。SCAD（Smoothly Clipped Absolute Deviation，平滑截断绝对偏差）和MCP（Minimax Concave Penalty，极小最大凹惩罚）等非凸惩罚会让惩罚在系数较大时逐渐减弱，从而减少收缩偏差：
+\paragraph{非凸惩罚与收缩偏差。}
+Lasso对较大的系数仍施加线性增长的惩罚，可能把真正重要的系数收缩得过小。SCAD（Smoothly Clipped Absolute Deviation，平滑截断绝对偏差）和MCP（Minimax Concave Penalty，极小最大凹惩罚）等非凸惩罚会让惩罚对系数的边际增长率在系数较大时逐渐减弱，从而减少收缩偏差：
 \begin{equation}
- J(\bm w)=\frac12\|X\bm w-\bm y\|_2^2+\sum_{j=1}^d p_\lambda(|w_j|).
+ J(\bm w)=\frac12\|X\bm w-\bm y\|_2^2+\sum_{j=1}^p p_\lambda(|w_j|).
  \label{eq:linear-nonconvex-penalty}
 \end{equation}
-它们可能比Lasso更接近变量选择的目标，但优化问题通常不再是凸的，容易依赖初始化并陷入局部最优。因此，较小的偏差要以更复杂、更不稳定的优化过程为代价。
+这里$p_\lambda$是由非负强度参数$\lambda$控制的标量惩罚函数，SCAD和MCP还各有形状参数。减弱大系数的收缩可能降低估计偏差，但效果依赖数据与参数选择。目标通常不再凸，求解结果可能依赖初始化，局部最优点也可能不同。
 
 \paragraph{约束式正则化与早停。}
-惩罚形式也可以改写为约束形式，例如Lasso等价于在适当的$\lambda$下求解
+惩罚形式也可以改写为约束形式， 给定Lasso惩罚问题的最优解$\hat{\bm w}_\lambda$，令$t=\|\hat{\bm w}_\lambda\|_1$，则该解也最小化对应的约束问题：
 \begin{equation}
  \min_{\bm w}\frac12\|X\bm w-\bm y\|_2^2
  \quad\text{subject to}\quad \|\bm w\|_1\leq t.
  \end{equation}
-在神经网络等迭代优化模型中，限制训练轮数的早停也可产生正则化效果：参数尚未完全拟合训练噪声时停止，相当于限制了模型有效复杂度，但它不是显式的参数范数惩罚，必须通过验证集选择停止时刻。
+ 反向从给定$t$找出对应的$\lambda$需要适当的最优乘子。多个$\lambda$可能对应同一个解，因而这两种参数化未必一一对应。在神经网络等迭代优化模型中，限制训练轮数的早停也可产生正则化效果：参数尚未完全拟合训练噪声时停止，相当于限制了模型有效复杂度，但它不是显式的参数范数惩罚，必须通过验证集选择停止时刻。
 
-这些方法的侧重点可以概括为：岭回归主要降低方差并稳定共线特征，Lasso主要产生元素级稀疏性，Elastic Net兼顾稀疏与相关特征稳定性，Group Lasso利用已知的分组结构，SCAD和MCP减少大系数的收缩偏差。正则化并非越强越好；增大惩罚通常降低方差，却会增加偏差，最终取值应依据独立验证结果和实际错误代价确定。
+这些惩罚回应不同的问题。岭回归收缩所有受惩罚系数，主要用于控制薄弱方向上的估计波动。需要删除部分特征时，可以使用Lasso。相关特征的稀疏选择不稳定时，Elastic Net再加入二次惩罚。已知特征组需要整体选择时，Group Lasso按组计算范数。SCAD和MCP则减弱大系数处的边际惩罚，但增加了非凸求解困难。它们的预测效果都需要独立验证，不能根据训练误差或参数是否稀疏直接排序。
 
-处理这类问题时，应区分三个目的：完全共线时，删除冗余列、重新参数化或选取伪逆解，可以处理参数表示不唯一；计算普通最小二乘时，QR 或 SVD 分解可以避免显式求逆及构造正规方程造成的额外数值误差，但无法消除数据本身的敏感性；若希望降低噪声引起的参数波动，则可依据验证结果选择岭惩罚、截断小奇异值，或补充能区分相关特征的数据。后两类收缩处理改变了估计规则，需要评估稳定性与偏差的取舍。因此，“不可逆”并不自动意味着必须使用岭回归，“已经求出唯一解”也不足以保证估计结果可靠。
+处理这类问题时，应区分三个目的：完全共线时，删除冗余列、重新参数化或选取伪逆解，可以处理参数表示不唯一。计算普通最小二乘时，QR 或 SVD 分解可以避免显式求逆及构造正规方程造成的额外数值误差，但无法消除数据本身的敏感性。若希望降低噪声引起的参数波动，则可依据验证结果选择岭惩罚、截断小奇异值，或补充能区分相关特征的数据。后两类收缩处理改变了估计规则，需要评估稳定性与偏差的取舍。因此，“不可逆”并不自动意味着必须使用岭回归，“已经求出唯一解”也不足以保证估计结果可靠。
 
-在刚才的例子中，$X^{\mathsf T}X=5$、$X^{\mathsf T}\bm y=8$，因此$\hat w_\lambda=8/(5+\lambda)$。取$\lambda=3$，权重从$1.6$缩为$1$，预测变成$1,2$。训练误差变大了，但权重也更小了；是否因此更适合新数据，要用未参与拟合的数据检验，不能只凭惩罚项判断。
+在刚才的例子中，$X^{\mathsf T}X=5$、$X^{\mathsf T}\bm y=8$，因此$\hat w_\lambda=8/(5+\lambda)$。取$\lambda=3$，权重从$1.6$缩为$1$，预测变成$1,2$。训练误差变大了，但权重也更小了。是否因此更适合新数据，要用未参与拟合的数据检验，不能只凭惩罚项判断。
 
 $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后学出的参数。选择$\lambda$通常需要验证数据。惩罚还受特征单位影响，因此一般先按训练数据的统计量调整特征尺度。若改用平均损失，目标中的相同数值$\lambda$不再代表同样的惩罚强度：$\hat R+\lambda\|\bm w\|^2/2$乘以$n$后，对应的求解矩阵是$X^{\mathsf T}X+n\lambda I$。以下推导都沿用损失求和的约定。
 
 
 
-\section{第二种视角：输出有分布，参数取一个确定值}
-\subsection{概率回归：把线性输出作为均值}
-现在不只说“预测为$\bm w^{\mathsf T}\bm x$”，还假设给定输入后，观测在这个均值附近波动：
+\section{高斯观测模型与极大似然估计}
+\subsection{条件分布与似然函数}
+本节使用设计矩阵的行特征记号。令$\bm x\in\R^p$为一个样本的特征向量，$\bm w\in\R^p$为对应参数。若模型已加入截距，常数坐标也包含在该向量中。给定输入后，假设观测在模型均值附近波动：
 \begin{equation}
  Y=\bm w^{\mathsf T}\bm x+\varepsilon,\qquad
  \varepsilon\sim\mathcal N(0,\sigma^2),\qquad
  Y\mid\bm x,\bm w\sim\mathcal N(\bm w^{\mathsf T}\bm x,\sigma^2).
 \end{equation}
-这里$\mathcal N$表示高斯分布，$\sigma^2>0$是噪声方差。随机性放在标签$Y$上；参数$\bm w$和噪声方差$\sigma^2$都是模型中需要确定的量。为了先看清权重的求解过程，下面先暂时固定$\sigma^2$，随后再对它进行最大似然估计。训练后，点估计模型保存的是确定的$\hat{\bm w}$和$\hat{\sigma}^2$。
+这里$\mathcal N$表示高斯分布，$\sigma^2>0$是噪声方差。随机性放在标签$Y$上。参数$\bm w$和噪声方差$\sigma^2$都是模型中需要确定的量。为了先看清权重的求解过程，下面先暂时固定$\sigma^2$，随后再对它进行最大似然估计。训练后，点估计模型保存的是确定的$\hat{\bm w}$和$\hat{\sigma}^2$。
 
 假设给定输入和参数后，各样本的观测噪声相互独立。对第$i$个样本，前面的高斯观测模型给出条件密度
 \begin{equation}
@@ -274,7 +275,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  \exp\left[-\frac{(y_i-\bm w^{\mathsf T}\bm x_i)^2}{2\sigma^2}\right].
  \label{eq:linear-single-observation-density}
 \end{equation}
-其中$y_i$是已经观测到的数值，$\bm x_i$是已知输入，$\bm w$是待比较的参数。指数中的平方项衡量模型均值$\bm w^{\mathsf T}\bm x_i$与标签$y_i$之间的差异；差异越大，该参数对这条观测分配的密度越小。
+其中$y_i$是已经观测到的数值，$\bm x_i$是已知输入，$\bm w$是待比较的参数。指数中的平方项衡量模型均值$\bm w^{\mathsf T}\bm x_i$与标签$y_i$之间的差异。差异越大，该参数对这条观测分配的密度越小。
 
 独立性使得$n$条观测的联合条件密度等于各项密度的乘积。把式\eqref{eq:linear-single-observation-density}代入，得到条件似然
 \begin{align}
@@ -305,7 +306,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  p(\bm y\mid X,\bm w)
  =\prod_{i=1}^n p(y_i\mid\bm x_i,\bm w)
 \end{equation}
-是给定模型参数后，观测数据的联合条件密度；对所有可能的$\bm y$积分，它的总量为$1$。而训练时，标签$\bm y$已经观测到，变化的是待估计的参数，于是把同一个表达式看作参数$\bm w$的函数：
+是给定模型参数后，观测数据的联合条件密度。对所有可能的$\bm y$积分，它的总量为$1$。而训练时，标签$\bm y$已经观测到，变化的是待估计的参数，于是把同一个表达式看作参数$\bm w$的函数：
 \begin{equation}
  L(\bm w;\bm y,X)=p(\bm y\mid X,\bm w).
 \end{equation}
@@ -324,7 +325,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  \hat{\bm w}_{\mathrm{ML}}
  =\argmin_{\bm w}\|X\bm w-\bm y\|_2^2.
 \end{equation}
-当$X$满列秩时，它就是正规方程的唯一解；若$X$秩不足，则可用伪逆选取一个最小二乘解。
+当$X$满列秩时，它就是正规方程的唯一解。若$X$秩不足，则可用伪逆选取一个最小二乘解。
 
 现在同时估计噪声方差。令
 \begin{equation}
@@ -362,12 +363,12 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  \hat\sigma_{\mathrm{ML}}=\sqrt{\hat\sigma^2_{\mathrm{ML}}}.
  \label{eq:linear-noise-variance-mle}
 \end{equation}
-它是训练样本残差平方和的平均值，也就是残差均方。
+在最优残差平方和严格为正时，这个式子给出训练样本残差平方和的平均值。若最优残差为零，右端只给出边界值，不是$\sigma^2>0$范围内存在的最大似然估计。
 
 \paragraph{噪声方差的无偏估计。}
 最大似然方差估计一般会低估噪声方差。无偏估计（unbiased estimation）要求在相同模型下反复抽取数据时，估计量的期望等于待估计的固定参数。例如，对噪声方差$\sigma^2$，无偏性是$\E[\hat\sigma^2]=\sigma^2$。这里随机变化的是训练数据及由它计算的估计量。
 
-下面在$X$固定、满列秩且$n>d$的条件下，说明为什么无偏方差估计的分母为$n-d$。$d$表示实际估计的系数总数；若包含截距，也要计入。在模型
+下面在$X$固定、满列秩且$n>p$的条件下，说明为什么无偏方差估计的分母为$n-p$。$p$表示实际估计的系数总数。若包含截距，也要计入。在模型
 \begin{equation} 
  \bm y=X\bm w_0+\bm\varepsilon,
  \qquad
@@ -375,7 +376,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  \qquad
  \operatorname{Cov}(\bm\varepsilon)=\sigma^2I_n
 \end{equation}
-下，$\bm w_0$表示真实的线性系数。$X$满列秩时，最小二乘拟合向量是
+下，$\bm w_0\in\R^p$表示真实的线性系数，$\bm\varepsilon\in\R^n$为误差向量。这里要求线性均值模型正确以及零均值、同方差且不相关的误差，不需要误差服从高斯分布。$X$满列秩时，最小二乘拟合向量是
 \begin{equation}
  X\hat{\bm w}_{\mathrm{ML}}=P_X\bm y,
  \qquad
@@ -387,52 +388,54 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  =(I_n-P_X)\bm y
  =(I_n-P_X)\bm\varepsilon.
 \end{equation}
-这里$(I_n-P_X)$也是投影矩阵，且它的秩为$n-d$：拟合过程已经用$X$的$d$个独立列方向解释了$d$个自由度，残差只保留其余$n-d$个方向。利用$\mathbb E[\bm\varepsilon\bm\varepsilon^{\mathsf T}]=\sigma^2I_n$，有
+这里$(I_n-P_X)$也是投影矩阵，且它的秩为$n-p$：拟合过程已经用$X$的$p$个独立列方向解释了$p$个自由度，残差只保留其余$n-p$个方向。利用$\mathbb E[\bm\varepsilon\bm\varepsilon^{\mathsf T}]=\sigma^2I_n$，有
 \begin{align}
  \mathbb E[\|\bm e\|_2^2]
  &=\mathbb E[\bm\varepsilon^{\mathsf T}(I_n-P_X)\bm\varepsilon]\\
  &=\operatorname{tr}\left((I_n-P_X)\mathbb E[\bm\varepsilon\bm\varepsilon^{\mathsf T}]\right)\\
  &=\sigma^2\operatorname{tr}(I_n-P_X)\\
- &=(n-d)\sigma^2.
+ &=(n-p)\sigma^2.
  \label{eq:linear-residual-sum-expectation}
 \end{align}
-因此，将残差平方和除以$n-d$后，其期望正好等于真实噪声方差：
+因此，将残差平方和除以$n-p$后，其期望正好等于真实噪声方差：
 \begin{equation}
  \hat\sigma^2_{\mathrm{unbiased}}
- =\frac{\|X\hat{\bm w}_{\mathrm{ML}}-\bm y\|_2^2}{n-d},
+ =\frac{\|X\hat{\bm w}_{\mathrm{ML}}-\bm y\|_2^2}{n-p},
  \qquad
  \mathbb E[\hat\sigma^2_{\mathrm{unbiased}}]=\sigma^2.
  \label{eq:linear-noise-variance-unbiased}
 \end{equation}
-这就是它被称为无偏估计的原因。两种估计的用途不同：$\hat\sigma^2_{\mathrm{ML}}$用于最大化当前高斯似然，分母为$n$；$\hat\sigma^2_{\mathrm{unbiased}}$用于无偏估计真实噪声方差，分母为剩余自由度$n-d$。若最小二乘残差为零，例如$n=d$且$X$可逆，似然会随$\sigma^2\to0$而无界增大。在本章$\sigma^2>0$的参数空间内，此时不存在有限的方差最大似然解，不能把零残差解释为未来观测没有噪声。$n=d$时，无偏方差公式的分母也为零，无法使用。实际应用中还需要独立数据或交叉验证检查误差与噪声假设。
+这就是它被称为无偏估计的原因。两种估计的用途不同：$\hat\sigma^2_{\mathrm{ML}}$用于最大化当前高斯似然，分母为$n$。$\hat\sigma^2_{\mathrm{unbiased}}$用于无偏估计真实噪声方差，分母为剩余自由度$n-p$。若最小二乘残差为零，例如$n=p$且$X$可逆，似然会随$\sigma^2\to0$而无界增大。在本章$\sigma^2>0$的参数空间内，此时不存在有限的方差最大似然解，不能把零残差解释为未来观测没有噪声。$n=p$时，无偏方差公式的分母也为零，无法使用。实际应用中还需要独立数据或交叉验证检查误差与噪声假设。
 
-平方损失既可以直接作为错误度量，也可以从高斯观测假设推导出来；概率解释还补充了关于观测噪声的具体假设。
+平方损失既可以直接作为错误度量，也可以从高斯观测假设推导出来。概率解释还补充了关于观测噪声的具体假设。
 
-训练完成后，模型输出$\mathcal N(\hat{\bm w}^{\mathsf T}\bm x_*,\sigma^2)$。星号表示新输入。需要一个数值时可取其均值；需要描述观测波动时则保留分布。这里尚未将有限数据导致的参数不确定性纳入预测。
+训练完成后，若方差也采用点估计，模型输出$\mathcal N(\hat{\bm w}^{\mathsf T}\bm x_*,\hat\sigma^2)$。若方差预先已知，则保留给定的$\sigma^2$。星号表示新输入。需要一个数值时可取其均值。需要描述观测波动时则保留分布。这里尚未将有限数据导致的参数不确定性纳入预测。
 
-\section{第三种视角：参数也用分布表示}
-\subsection{先验与后验：不再只选一组权重}
-前面两种方法训练后都保存一组参数。只有少量数据时，可能仍有其他权重能够合理解释观测。贝叶斯回归用参数分布保留这种不确定性\cite{bishop2006pattern,murphy2022pml}。这里把参数写成随机量，是为了表达我们对未知系数的认识；设备的真实系数并不会因此在每次预测时改变。
+\section{贝叶斯线性回归}
+\subsection{权重的先验与后验}
+前面两种方法训练后都保存一组参数。只有少量数据时，可能仍有其他权重能够合理解释观测。贝叶斯回归用参数分布保留这种不确定性\cite{bishop2006pattern,murphy2022pml}。这里把参数写成随机量，是为了表达我们对未知系数的认识。设备的真实系数并不会因此在每次预测时改变。
 
 仍采用高斯观测模型，并为权重指定零均值高斯先验：
 \begin{equation}
  \bm w\sim\mathcal N(\bm0,\tau^2I),\qquad
  \bm y\mid X,\bm w\sim\mathcal N(X\bm w,\sigma^2I_n),
 \end{equation}
-其中$\tau^2>0$描述先验允许权重偏离零的程度，$I_n$是$n\times n$单位矩阵。本章把$\tau^2$和$\sigma^2$都作为给定的超参数，先看清参数分布怎样更新。训练输入$X$作为已知条件，不对输入的产生过程建模，因此这里仍属于条件判别建模；使用贝叶斯公式本身不会改变这一点。
+这里先验中的$I=I_p$，各向同性高斯先验对全部$p$个系数采用相同方差，包括已并入参数的截距。这是下面推导的明确选择。若不希望截距被同样收缩，可以为它指定不同的先验方差。不同单位的特征通常应先调整尺度，再解释共同的权重方差。
 
-若权重维数为$d$，上述两个高斯分布写成密度分别为
+其中$\tau^2>0$描述先验允许权重偏离零的程度，$I_n$是$n\times n$单位矩阵。本章把$\tau^2$和$\sigma^2$都作为给定的超参数，先看清参数分布怎样更新。训练输入$X$作为已知条件，不对输入的产生过程建模，因此这里仍属于条件判别建模。使用贝叶斯公式本身不会改变这一点。
+
+若权重维数为$p$，上述两个高斯分布写成密度分别为
 \begin{align}
  p(\bm y\mid X,\bm w)
  &=\frac{1}{(2\pi\sigma^2)^{n/2}}
  \exp\left[-\frac{1}{2\sigma^2}
  \|\bm y-X\bm w\|_2^2\right],\label{eq:linear-gaussian-likelihood}\\
  p(\bm w)
- &=\frac{1}{(2\pi\tau^2)^{d/2}}
+ &=\frac{1}{(2\pi\tau^2)^{p/2}}
  \exp\left[-\frac{1}{2\tau^2}\|\bm w\|_2^2\right].
  \label{eq:linear-gaussian-prior-density}
 \end{align}
-似然的指数项衡量参数给出的均值与观测标签相差多远；先验的指数项衡量权重离零多远。两个前面的系数保证各自对相应变量积分为一。它们在比较不同$\bm w$时看似只是常数，但在写出完整后验或计算模型证据时不能随意丢弃。
+似然的指数项衡量参数给出的均值与观测标签相差多远。先验的指数项衡量权重离零多远。似然前的系数保证密度对$\bm y$积分为一，先验前的系数保证密度对$\bm w$积分为一。它们在比较不同$\bm w$时看似只是常数，但在写出完整后验或计算模型证据时不能随意丢弃。
 
 将$X$视为已知条件，贝叶斯公式写成
 \begin{equation}
@@ -442,7 +445,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
 \end{equation}
 分子把数据证据与原有偏好结合，分母保证后验积分为一。先验是看见本次训练标签之前的参数分布，后验是结合这些标签之后的参数分布。后验用概率密度描述许多可能的权重，并为它们赋予不同的可信程度。
 
-\subsection{最大后验估计：从后验中选一个点}
+\subsection{最大后验估计与岭回归}
 若仍希望最终只保存一组权重，可以选择后验密度最大的点，称为最大后验估计（Maximum A Posteriori, MAP）。取负对数并舍去与权重无关的常数，得到
 \begin{equation}
  \hat{\bm w}_{\mathrm{MAP}}=\argmin_{\bm w}
@@ -453,11 +456,11 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
 \begin{equation}
  \lambda=\frac{\sigma^2}{\tau^2}.
 \end{equation}
-观测噪声越大，数据的相对作用越弱；先验越集中于零，收缩越强。这给出了正则化的一种概率解释：二次惩罚可以来自零均值高斯先验的负对数。仅凭某个惩罚项本身，还不能把模型称为贝叶斯模型。
+观测噪声越大，数据的相对作用越弱。先验越集中于零，收缩越强。这给出了正则化的一种概率解释：二次惩罚可以来自零均值高斯先验的负对数。仅凭某个惩罚项本身，还不能把模型称为贝叶斯模型。
 
-\textbf{MAP 使用了先验和后验，但最终仍是点估计；它不等于保留了完整的参数分布。}若直接把 MAP 权重代入概率模型，仍会省略参数不确定性对预测的影响。
+MAP使用先验计算后验密度的最大点，最终保存的仍是一个参数向量。若直接把MAP权重代入概率模型，就会省略参数不确定性对预测的影响。
 
-\subsection{完整后验：均值与方差都保留}
+\subsection{高斯后验的配方推导}
 在线性高斯模型中，式\eqref{eq:linear-gaussian-likelihood}与式\eqref{eq:linear-gaussian-prior-density}的乘积仍可写成高斯形式。为看清这个结论，先把后验中依赖$\bm w$的指数项展开。忽略暂时与$\bm w$无关的因子，有
 \begin{equation}
  p(\bm w\mid\mathcal D)\propto
@@ -472,7 +475,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  \bm h=\sigma^{-2}X^{\mathsf T}\bm y,\\
  S&=\Lambda^{-1},\qquad \bm m=S\bm h.
 \end{align}
-由于$\Lambda\bm m=\bm h$，二次项可完成平方：
+这里$\Lambda,S\in\R^{p\times p}$，$\bm h,\bm m\in\R^p$。$\tau^2>0$和$\sigma^2>0$保证$\Lambda$正定，故即使$X$秩不足，后验协方差$S$仍存在。由于$\Lambda\bm m=\bm h$，二次项可完成平方：
 \begin{equation}
  \bm w^{\mathsf T}\Lambda\bm w-2\bm w^{\mathsf T}\bm h
  =(\bm w-\bm m)^{\mathsf T}\Lambda(\bm w-\bm m)
@@ -482,35 +485,35 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
 最后一项不依赖$\bm w$，会被贝叶斯公式分母中的证据吸收。于是归一化后的完整后验密度为
 \begin{equation}
  p(\bm w\mid\mathcal D)=
- \frac{1}{(2\pi)^{d/2}|S|^{1/2}}
+ \frac{1}{(2\pi)^{p/2}|S|^{1/2}}
  \exp\left[-\frac12(\bm w-\bm m)^{\mathsf T}S^{-1}(\bm w-\bm m)\right],
  \label{eq:linear-gaussian-posterior-density}
 \end{equation}
-即$\bm w\mid\mathcal D\sim\mathcal N(\bm m,S)$。其中$\bm m$是后验均值，$S$是后验协方差，描述权重的不确定性及其相互关联；$|S|$是协方差矩阵的行列式，归一化系数保证式\eqref{eq:linear-gaussian-posterior-density}对所有$\bm w$的积分为一。高斯分布的均值恰好也是密度最高点，因此这里$\bm m=\hat{\bm w}_{\mathrm{MAP}}$；这不表示任意后验的均值与 MAP 都相等。
+即$\bm w\mid\mathcal D\sim\mathcal N(\bm m,S)$。其中$\bm m$是后验均值，$S$是后验协方差，描述权重的不确定性及其相互关联。$|S|$是协方差矩阵的行列式，归一化系数保证式\eqref{eq:linear-gaussian-posterior-density}对所有$\bm w$的积分为一。高斯分布的均值恰好也是密度最高点，因此这里$\bm m=\hat{\bm w}_{\mathrm{MAP}}$。这不表示任意后验的均值与 MAP 都相等。
 
-\paragraph{新数据怎样更新已有后验。}
-后验也可作为下一批独立数据到来之前的先验。设已有后验为$\mathcal N(\bm m_0,S_0)$，新到一批设计矩阵为$X_1$、标签为$\bm y_1$，且噪声仍为$\mathcal N(\bm0,\sigma^2I)$，则更新后
+\paragraph{独立新数据的后验更新。}
+后验也可作为下一批数据到来之前的先验。这里要求新旧数据在给定共同参数后条件独立，不能把共享未知参数的两批数据无条件当作独立。设已有后验为$\mathcal N(\bm m_0,S_0)$且$S_0\succ0$。新批次有$n_1$个样本，设计矩阵$X_1\in\R^{n_1\times p}$、标签$\bm y_1\in\R^{n_1}$，且噪声仍为$\mathcal N(\bm0,\sigma^2I)$，则更新后
 \begin{align}
  S_1^{-1}&=S_0^{-1}+\sigma^{-2}X_1^{\mathsf T}X_1,\label{eq:linear-sequential-posterior-precision}\\
  \bm m_1&=S_1\left(S_0^{-1}\bm m_0+\sigma^{-2}X_1^{\mathsf T}\bm y_1\right).
  \label{eq:linear-sequential-posterior-mean}
 \end{align}
-式\eqref{eq:linear-sequential-posterior-precision}揭示了独立观测的累积方式：增加的是精度（协方差的逆），方差并不会直接相加。新数据在某个权重方向上的信息由$X_1^{\mathsf T}X_1$决定：若新记录在该方向没有变化，就无法显著降低该方向的不确定性。将全部训练数据一次代入，或将它们分批按式\eqref{eq:linear-sequential-posterior-precision}--\eqref{eq:linear-sequential-posterior-mean}更新，在模型假设相同且不重复计数的条件下都会得到同一个后验。这个顺序视角也提醒我们，重复复制同一条记录并不能制造独立证据。
+式\eqref{eq:linear-sequential-posterior-precision}揭示了独立观测的累积方式：增加的是精度（协方差的逆），方差并不会直接相加。新数据在某个权重方向上的信息由$X_1^{\mathsf T}X_1$决定：若$X_1\bm v=\bm0$，新数据不直接增加方向$\bm v$的精度。协方差的变化还取决于先验中不同方向的关联，不能仅凭某列是否随样本变化判断方差是否降低。将全部训练数据一次代入，或将它们分批按式\eqref{eq:linear-sequential-posterior-precision}--\eqref{eq:linear-sequential-posterior-mean}更新，在模型假设相同且不重复计数的条件下都会得到同一个后验。这个顺序视角也提醒我们，重复复制同一条记录并不能制造独立证据。
 
 仍用两个样本$(1,2),(2,3)$，取$\sigma^2=1$、$\tau^2=1/3$。此时$\lambda=3$，并且
 \begin{equation}
  S=(5+3)^{-1}=\frac18,\qquad m=\frac18\times8=1,
  \qquad w\mid\mathcal D\sim\mathcal N(1,1/8).
 \end{equation}
-岭回归与 MAP 只留下$w=1$；完整后验还留下方差$1/8$。三者在这个例子中可以给出相同的中心预测，但保存的信息并不相同。
+岭回归与 MAP 只留下$w=1$。完整后验还留下方差$1/8$。三者在这个例子中可以给出相同的中心预测，但保存的信息并不相同。
 
-\subsection{后验预测：把参数不确定性带到新样本}
+\subsection{后验预测与方差分解}
 对新输入$\bm x_*$，贝叶斯预测要把后验中的各种权重都纳入计算，具体表现为积分：
 \begin{equation}
  p(y_*\mid\bm x_*,\mathcal D)=
  \int p(y_*\mid\bm x_*,\bm w)p(\bm w\mid\mathcal D)\,\mathrm d\bm w.
 \end{equation}
-在线性高斯模型中，这个结果可以直接算出：
+假设新观测噪声与训练噪声、权重均独立。在给定噪声方差的线性高斯模型中，由第一章的全方差公式可得
 \begin{equation}
  Y_*\mid\bm x_*,\mathcal D\sim
  \mathcal N(\bm x_*^{\mathsf T}\bm m,
@@ -519,22 +522,40 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
 \end{equation}
 第一项是在给定权重后仍存在的观测波动，第二项是不同合理权重在新输入处产生的预测差异。也可以先看没有观测噪声的线性函数值：它的后验方差只有第二项。前者描述下一次观测本身的不确定性，后者描述我们对均值函数的不确定性，使用时需要区分。
 
-在上述一维例子中，取$x_*=2$，后验预测的均值为$2$，方差为$1+2^2/8=3/2$。若只代入 MAP 权重，则得到$\mathcal N(2,1)$，省略了额外的$1/2$。这个数值例子把“输出是概率分布”和“参数也是分布”的差别直接呈现在预测结果中。
+在上述一维例子中，取$x_*=2$，后验预测的均值为$2$，方差为$1+2^2/8=3/2$。若只代入MAP权重，则得到$\mathcal N(2,1)$，省略了额外的$1/2$。图\ref{fig:linear-predictive-intervals}比较这一位置处的两个条件区间。区间相同的中心来自共同的均值，宽度差异来自是否计入参数方差。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Latex,x=1.7cm,y=1cm,every node/.style={font=\small}]
+ \draw[->] (-1,0)--(5,0) node[right] {$y_*$};
+ \foreach \t in {0,1,2,3,4} {\draw (\t,0.06)--(\t,-0.06) node[below] {$\t$};}
+ \draw[thick] (0.04,0.8)--(3.96,0.8);
+ \draw (0.04,0.68)--(0.04,0.92) (3.96,0.68)--(3.96,0.92);
+ \fill (2,0.8) circle (1.5pt);
+ \node[above] at (2,0.9) {MAP代入预测，方差$1$};
+ \draw[thick,dashed] (-0.4005,1.7)--(4.4005,1.7);
+ \draw (-0.4005,1.58)--(-0.4005,1.82) (4.4005,1.58)--(4.4005,1.82);
+ \fill (2,1.7) circle (1.5pt);
+ \node[above] at (2,1.8) {后验预测，方差$3/2$};
+\end{tikzpicture}
+\caption{给定$x_*=2$及教学算例数据后的观测预测区间。实线为MAP代入高斯模型的$2\pm1.96$，虚线为后验预测的$2\pm1.96\sqrt{3/2}$，两者在各自模型下约含$95\%$的条件概率。区间描述新观测，不是参数置信区间，也不保证真实部署覆盖率。}
+\label{fig:linear-predictive-intervals}
+\end{figure}
 
 本章的线性高斯假设使后验和预测分布都能写成闭式形式，便于看清参数不确定性怎样传递到预测中。更一般的模型可能需要近似推断，后面的贝叶斯章节再讨论这些方法。
 
-\section{第四种视角：从核贝叶斯线性回归到高斯过程}
+\section{核贝叶斯线性回归与高斯过程}
 \label{sec:gaussian-process-regression}
-前面的贝叶斯线性回归把不确定性放在有限维权重$\bm w$上。现在仍然使用同一个模型思路，只改变输入表示：先用特征函数把原始输入映射到特征空间，再对特征空间中的权重使用高斯先验。特征空间可以取任意有限维，也可以形式上扩展到无穷维。后一个变化会使我们从显式计算权重，转向计算输入之间的核函数，最后引出高斯过程的函数空间视角。经典教材对这条联系有系统介绍\cite{rasmussen2006gpml}。
+前面的贝叶斯线性回归把不确定性放在有限维权重$\bm w$上。本节恢复$\bm x\in\R^d$表示原始输入，显式写出特征映射$\phi$。一般设计矩阵的列数此前记为$p$，本节改用$M$表示特征空间的维数。现在仍然使用相同的高斯权重模型。先用特征函数把原始输入映射到特征空间，再对特征空间中的权重使用高斯先验。特征空间可以取任意有限维，也可以形式上扩展到无穷维。后一个变化会使我们从显式计算权重，转向计算输入之间的核函数，最后引出高斯过程的函数空间视角。经典教材对这条联系有系统介绍\cite{rasmussen2006gpml}。
 
-\subsection{先在特征空间中做贝叶斯线性回归}
+\subsection{特征空间中的权重后验}
 令$\phi(\bm x)$表示输入$\bm x$的特征向量。与本章前面式\eqref{eq:linear-basis-function-model}相同，函数写成
 \begin{equation}
  f(\bm x)=\bm w^{\mathsf T}\phi(\bm x),
  \qquad \bm w\sim\mathcal N(\bm0,\Sigma_p).
  \label{eq:kernel-bayesian-linear-model}
 \end{equation}
-如果$\phi(\bm x)$有$M$个分量，$\bm w$和$\Sigma_p$的维度分别是$M$和$M\times M$。给定训练输入后形成特征矩阵$\Phi\in\R^{n\times M}$，其中第$i$行是$\phi(\bm x_i)^{\mathsf T}$。观测模型仍为
+如果$\phi(\bm x)$有$M$个分量，$\bm w$和$\Sigma_p$的维度分别是$M$和$M\times M$。下标$p$沿用先验协方差的记号，不表示矩阵阶数。以下显式使用$\Sigma_p^{-1}$的权重空间公式要求$\Sigma_p\succ0$。半正定但奇异的先验仍能诱导有效核，但应在其支撑子空间推导权重后验，或直接使用后面的核空间公式。给定训练输入后形成特征矩阵$\Phi\in\R^{n\times M}$，其中第$i$行是$\phi(\bm x_i)^{\mathsf T}$。观测模型仍为
 \begin{equation}
  \bm y\mid\Phi,\bm w\sim\mathcal N(\Phi\bm w,\sigma^2I_n).
 \end{equation}
@@ -554,7 +575,7 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
 \end{equation}
 到这里，它仍然只是把原始输入换成了特征表示后的贝叶斯线性回归。
 
-\subsection{特征函数映射为何引出核函数}
+\subsection{核函数与对偶预测}
 当$M$很大，直接形成$\Phi$并求解$M\times M$的后验系统会变得困难。更重要的是，很多有用的特征映射并没有方便写出的有限维表达式。此时可以观察预测公式中实际出现的量。定义
 \begin{equation}
  k(\bm x,\bm x')
@@ -563,7 +584,11 @@ $\lambda$是控制学习偏好的超参数，而$\bm w$是给定这个偏好后�
  K_{ij}=k(\bm x_i,\bm x_j).
  \label{eq:kernel-from-feature-map}
 \end{equation}
-$k$称为核函数。它把两个输入先映射到特征空间，再计算带有先验协方差$\Sigma_p$的内积。训练数据与新输入之间的核向量为$\bm k_{*X}=[k(\bm x_*,\bm x_1),\ldots,k(\bm x_*,\bm x_n)]$。利用矩阵恒等式，可以将式\eqref{eq:kernel-bayesian-linear-prediction}改写为
+$k$称为核函数。它把两个输入先映射到特征空间，再计算由先验协方差加权的内积。训练数据与新输入之间的行核向量定义为
+\begin{equation}
+ \bm k_{*X}=[k(\bm x_*,\bm x_1),\ldots,k(\bm x_*,\bm x_n)]\in\R^{1\times n}.
+\end{equation}
+令$\bm k_{X*}=\bm k_{*X}^{\mathsf T}\in\R^n$。核矩阵$K=\Phi\Sigma_p\Phi^{\mathsf T}\in\R^{n\times n}$是训练函数值的先验协方差，$\sigma^2>0$保证$K+\sigma^2I_n$正定。利用矩阵恒等式，可以将式\eqref{eq:kernel-bayesian-linear-prediction}改写为
 \begin{align}
  \mathbb E[f(\bm x_*)\mid\mathcal D]
  &=\bm k_{*X}(K+\sigma^2I_n)^{-1}\bm y,\\
@@ -572,16 +597,16 @@ $k$称为核函数。它把两个输入先映射到特征空间，再计算带�
  -\bm k_{*X}(K+\sigma^2I_n)^{-1}\bm k_{X*}.
  \label{eq:kernel-bayesian-linear-dual-prediction}
 \end{align}
-这里不再需要显式构造$\phi(\bm x)$或保存$\bm w$。计算从特征空间的$M$个权重转到了训练样本决定的$n\times n$核矩阵。若$M>n$，这个转换尤其有用。它也说明了“核技巧”不是凭空增加一个非线性步骤，而是利用特征空间内积的等价表达避免显式进入高维空间。
+这里不再需要显式构造$\phi(\bm x)$或保存$\bm w$。计算从特征空间的$M$个权重转到了训练样本决定的$n\times n$核矩阵。若$M>n$，这个转换尤其有用。这种利用核值替代显式特征内积的计算称为核技巧（kernel trick）。它避免逐项构造高维特征，但训练样本很多时仍需处理较大的核矩阵。
 
-以RBF核为例，取
+以径向基函数（Radial Basis Function，RBF）核为例，取
 \begin{equation}
  k(\bm x,\bm x')=\alpha^2\exp\left(-\frac{\|\bm x-\bm x'\|_2^2}{2\ell^2}\right).
  \label{eq:gp-rbf-kernel}
 \end{equation}
-其中$\alpha^2$控制函数值的变化幅度，$\ell>0$是长度尺度。两个输入距离越远，核值越小，模型就越少把一个位置的观测变化传递到另一个位置。长度尺度小的模型允许函数快速变化，长度尺度大的模型偏好更平滑的函数。这个核具有一个无穷维的特征表示，但实际计算只需要核函数值。核函数必须使任意输入集合形成的矩阵半正定，即对任意向量$\bm a$都有$\bm a^{\mathsf T}K\bm a\geq0$。
+这里$\alpha>0$决定先验函数值的标准差，$\ell>0$是长度尺度。两个输入距离越远，核值越小，模型就越少把一个位置的观测变化传递到另一个位置。长度尺度小的模型允许函数快速变化，长度尺度大的模型偏好更平滑的函数。这个核具有一个无穷维的特征表示，但实际计算只需要核函数值。有效的实协方差核还必须对称，并使任意有限输入集合形成的矩阵半正定，即对任意向量$\bm a$都有$\bm a^{\mathsf T}K\bm a\geq0$。
 
-\subsection{从核贝叶斯线性回归引出高斯过程}
+\subsection{高斯过程的函数分布}
 前面的推导已经在使用一个事实：对任意输入集合，函数值向量的协方差都由同一个核函数给出。现在把这一事实单独作为模型定义。高斯过程（Gaussian Process，GP）是定义在输入空间上的随机函数。若任取有限个输入$\bm x_1,\ldots,\bm x_n$，函数值向量都服从多元高斯分布：
 \begin{equation}
  \begin{bmatrix}f(\bm x_1)\\\vdots\\f(\bm x_n)\end{bmatrix}
@@ -591,7 +616,7 @@ $k$称为核函数。它把两个输入先映射到特征空间，再计算带�
 \end{equation}
 由有限维高斯权重模型诱导出的核正是式\eqref{eq:kernel-from-feature-map}。高斯过程把这个关系推广到不必显式给出有限维特征映射的情形。此后讨论的对象从权重$\bm w$变为函数值$f(\bm x)$，但高斯条件分布的计算形式仍然来自前面已经学过的贝叶斯线性回归。
 
-\subsection{观测数据怎样更新函数}
+\subsection{函数后验与观测预测}
 仍以回归数据$\mathcal D=\{(\bm x_i,y_i)\}_{i=1}^n$为例，假设观测包含独立高斯噪声：
 \begin{equation}
  f\sim\mathcal{GP}(m,k),
@@ -599,14 +624,14 @@ $k$称为核函数。它把两个输入先映射到特征空间，再计算带�
  \qquad \varepsilon_i\overset{\mathrm{i.i.d.}}\sim\mathcal N(0,\sigma^2).
  \label{eq:gp-observation-model}
 \end{equation}
-令$\bm m_X=[m(\bm x_1),\ldots,m(\bm x_n)]^{\mathsf T}$，$K_{XX}=K(X,X)$。由于高斯分布对条件化封闭，训练标签的分布为
+令$\bm m_X=[m(\bm x_1),\ldots,m(\bm x_n)]^{\mathsf T}$，$K_{XX}=K(X,X)$。噪声还假设与潜在函数$f$独立。高斯函数值与独立高斯噪声之和仍为高斯，因此训练标签的边缘分布为
 \begin{equation}
  \bm y\mid X\sim\mathcal N\left(\bm m_X,K_{XX}+\sigma^2I_n\right).
  \label{eq:gp-marginal-likelihood}
 \end{equation}
-这里的$\sigma^2I_n$只加在观测协方差上，表示每次测量的独立噪声；它不改变潜在函数$f$本身的协方差。与贝叶斯线性回归保存权重后验不同，高斯过程直接对函数值的联合分布进行更新。
+这里的$\sigma^2I_n$只加在观测协方差上，表示每次测量的独立噪声。它不改变潜在函数$f$本身的协方差。与贝叶斯线性回归保存权重后验不同，高斯过程直接对函数值的联合分布进行更新。
 
-对新输入集合$X_*$，记$K_{*X}=K(X_*,X)$、$K_{**}=K(X_*,X_*)$。训练数据与新位置的联合高斯分布为
+设新输入集合$X_*$包含$n_*\geq1$个输入，记$K_{*X}=K(X_*,X)\in\R^{n_*\times n}$、$K_{**}=K(X_*,X_*)\in\R^{n_*\times n_*}$和$K_{X*}=K_{*X}^{\mathsf T}$。$f_*\in\R^{n_*}$是这些位置的潜在函数值，$\bm m_*\in\R^{n_*}$是对应的先验均值向量。训练数据与新位置的联合高斯分布为
 \begin{equation}
  \begin{bmatrix}\bm y\\f_*\end{bmatrix}
  \sim\mathcal N\left(
@@ -625,37 +650,37 @@ $k$称为核函数。它把两个输入先映射到特征空间，再计算带�
 \end{align}
 $\bm\mu_*$是新位置的函数均值，$\Sigma_*$是对潜在函数值的不确定性。若要预测下一次带噪观测$\bm y_*$，还要加入观测噪声：
 \begin{equation}
- \bm y_*\mid X_*,\mathcal D\sim\mathcal N(\bm\mu_*,\Sigma_*+\sigma^2I).
+ \bm y_*\mid X_*,\mathcal D\sim\mathcal N(\bm\mu_*,\Sigma_*+\sigma^2I_{n_*}).
  \label{eq:gp-predictive}
 \end{equation}
 观测点附近通常有更多信息，后验方差会降低，但带噪观测的预测方差仍包含$\sigma^2$。因此，训练点处的函数不确定性和下一次测量的不确定性不能混为一谈。
 
 这些公式也说明了高斯过程回归（Gaussian Process Regression，GPR）的计算代价。训练时需要分解$n\times n$矩阵$K_{XX}+\sigma^2I_n$，直接方法的时间复杂度通常为$O(n^3)$，存储复杂度为$O(n^2)$。实现时应使用Cholesky分解求解线性方程，不显式计算逆矩阵。样本很多时，常用诱导点或其他稀疏高斯过程近似降低代价，但近似会改变计算结果，需要用验证数据检查。
 
-\subsection{高斯过程回归何时适合}
-GPR适合样本量中小、希望获得平滑函数预测和不确定性估计的回归任务。例如，温度传感器的历史记录不多时，可以用长度尺度表达相近工况下的温度关系，并用后验方差标出数据稀疏区域。核函数的选择、输入尺度和噪声方差仍需通过训练集以外的数据确定。高斯过程的方差只反映所选核和噪声模型下的统计不确定性，不能自动发现传感器漂移、分布变化或核函数选错等模型错误。高维、大样本任务通常需要特征降维、结构化核或稀疏近似，否则矩阵计算会成为主要限制。
+\subsection{高斯过程回归的适用条件}
+GPR适合样本量中小、希望获得平滑函数预测和不确定性估计的回归任务。例如，温度传感器的历史记录不多时，可以用长度尺度表达相近工况下的温度关系，并用后验方差标出数据稀疏区域。核的形式和输入尺度需要结合领域知识及验证结果选择。长度尺度、幅度和噪声方差也可用训练集边缘似然估计，再以独立数据评价，不能把边缘似然较大解释为部署性能已经得到保证。高斯过程的方差只反映所选核和噪声模型下的统计不确定性，不能自动发现传感器漂移、分布变化或核函数选错等模型错误。高维、大样本任务通常需要特征降维、结构化核或稀疏近似，否则矩阵计算会成为主要限制。
 
-\section{把上一章的概念逐项放回例子}
+\section{线性回归中的概念联系}
 回顾这条线性模型主线，首先要区分几组容易混淆的对象。
 \begin{itemize}
  \item \textbf{数据与任务：}输入$\bm x_i$是预测时可用的特征，标签$y_i$是对应的实数目标。在设备温度例子中，当前温度和振动是输入，下一小时温度是标签，任务是回归。
  \item \textbf{结构与参数：}加权求和是结构，权重和截距是参数。线性结构本身就是一种归纳偏置：不允许模型任意改变输入与输出的关系。
- \item \textbf{损失与目标：}平方损失衡量单样本的预测误差；求和后形成训练目标，加入惩罚后则同时考虑拟合和参数偏好。
- \item \textbf{训练与预测：}训练用历史标签求权重或后验；预测将结果用于新输入。点估计下代入固定参数，完整贝叶斯预测则对参数后验积分。高斯过程回归直接利用核矩阵对函数值进行条件化。
+ \item \textbf{损失与目标：}平方损失衡量单样本的预测误差。求和后形成训练目标，加入惩罚后则同时考虑拟合和参数偏好。
+ \item \textbf{训练与预测：}训练用历史标签求权重或后验。预测将结果用于新输入。点估计下代入固定参数，完整贝叶斯预测则对参数后验积分。高斯过程回归直接利用核矩阵对函数值进行条件化。
  \item \textbf{正则化与先验：}岭惩罚可以在给定高斯似然和高斯先验时解释为 MAP。惩罚强度、先验方差和噪声方差之间的对应依赖目标的尺度约定。
  \item \textbf{经验风险与泛化：}这些计算决定怎样拟合已有样本，不保证新设备、新时段上的表现。验证仍然需要独立于参数拟合的数据。
 \end{itemize}
 
-四种视角可以服务于同一个回归任务：确定性函数给出一个数，固定参数的高斯模型给出条件分布，参数后验把有限维权重的不确定性带到预测中，高斯过程则直接在函数空间中表达这种不确定性。具体采用哪一种，取决于问题需要表达什么信息，也取决于可用的数据规模和建模假设。
+本章比较了四种模型表达。确定性函数给出单个数值预测。固定参数的高斯观测模型描述标签的条件分布。贝叶斯线性回归将权重后验的不确定性传到预测分布。高斯过程直接描述有限个函数值的联合分布。选择时需要检查任务所需的信息、数据规模与模型假设。
 
-本章只把上一章的判别模型分支具体算了一遍，并没有试图用线性回归代替所有模型类型。生成建模、隐藏变量和无监督学习改变了要描述的对象，需要另作假设。即使使用参数后验，模型结构和噪声假设也仍可能不适合数据；后验不确定性并不能自动覆盖所有建模错误。
+本章只把上一章的判别模型分支具体算了一遍，并没有试图用线性回归代替所有模型类型。生成建模、隐藏变量和无监督学习改变了要描述的对象，需要另作假设。即使使用参数后验，模型结构和噪声假设也仍可能不适合数据。后验不确定性并不能自动覆盖所有建模错误。
 
 \section*{辅助学习材料}
 \begingroup
 \emergencystretch=3em
 \begin{itemize}
- \item \textbf{Linear Models}；scikit-learn Developers；英文官方文档。阅读 Ordinary Least Squares、Ridge 与 Bayesian Regression 小节，对照本章的点预测、惩罚目标与参数不确定性。软件中损失的归一化和超参数记法可能不同，需要先核对定义。\href{https://scikit-learn.org/stable/modules/linear\_model.html}{在线阅读}。
- \item \textbf{Mathematics for Machine Learning}；Deisenroth、Faisal、Ong；英文教材。阅读线性回归相关章节，对照设计矩阵、最大似然估计与贝叶斯回归。\href{https://mml-book.com}{书籍网站}。
- \item \textbf{Gaussian Processes for Machine Learning}；Rasmussen、Williams；英文教材。阅读协方差函数、后验预测与超参数学习，对照本章的函数空间视角。\href{https://gaussianprocess.org/gpml/}{在线阅读}。
+ \item \textbf{Linear Models}。scikit-learn Developers。英文官方文档。阅读 Ordinary Least Squares、Ridge 与 Bayesian Regression 小节，对照本章的点预测、惩罚目标与参数不确定性。软件中损失的归一化和超参数记法可能不同，需要先核对定义。\href{https://scikit-learn.org/stable/modules/linear\_model.html}{在线阅读}。
+ \item \textbf{Mathematics for Machine Learning}。Deisenroth、Faisal、Ong。英文教材。阅读线性回归相关章节，对照设计矩阵、最大似然估计与贝叶斯回归。\href{https://mml-book.com}{书籍网站}。
+ \item \textbf{Gaussian Processes for Machine Learning}。Rasmussen、Williams。英文教材。阅读协方差函数、后验预测与超参数学习，对照本章的函数空间视角。\href{https://gaussianprocess.org/gpml/}{在线阅读}。
 \end{itemize}
 \endgroup

@@ -1,4 +1,4 @@
-\chapter{最优间隔分类：支持向量机}
+\chapter{支持向量机的间隔分类}
 \label{chap:svm}
 \label{chap:kernel-algorithms}
 \begin{quote}\small
@@ -7,7 +7,7 @@
 
 上一章建立了核与特征空间内积的关系。本章研究二分类：给定输入$\bm x_i\in\R^d$和标签$y_i\in\{-1,+1\}$，怎样学习一个边界，将新的观测分到两类中？例如，输入是已经标准化的温度与振动，标签表示随后规定时间内是否发生故障。支持向量机（Support Vector Machine，SVM）的推导参照Theodoridis第11.10节的最优间隔分类及第11.11节的计算讨论\cite{theodoridis2015ml}，也可对照MML第12章\cite{deisenroth2020mml}。
 
-\section{训练分类正确后，还需要选择哪一条边界}
+\section{分类分数与几何间隔}
 先用线性分数
 \begin{equation}
  f(\bm x)=\bm w^{\mathsf T}\bm x+b,\qquad
@@ -59,7 +59,7 @@
 \end{equation}
 平方范数与范数有相同的最小点，前面的$1/2$便于求导。约束固定了函数间隔尺度，因此范数最小对应几何间隔最大。若数据不可分，可行集合为空，不能继续用这个目标求分类器。
 
-\subsection{为什么解能写成训练样本的组合}
+\subsection{样本展开与拉格朗日对偶}
 为每个约束引入乘子$\alpha_i\ge0$，拉格朗日函数为
 \begin{equation}
  \mathcal L=\frac12\|\bm w\|_2^2
@@ -76,9 +76,9 @@
  g(\bm\alpha)=\sum_i\alpha_i-
  \frac12\sum_{i,j}\alpha_i\alpha_j y_i y_j\bm x_i^{\mathsf T}\bm x_j.
 \end{equation}
-对偶问题是最大化$g$，约束为$\alpha_i\ge0$及$\bm\alpha^{\mathsf T}\bm y=0$。原问题是凸二次规划。严格可分时可进一步放大参数取得严格可行点，满足Slater条件，所以强对偶成立，原问题和对偶问题有相同最优值。
+对偶问题是最大化$g$，约束为$\alpha_i\ge0$及$\bm\alpha^{\mathsf T}\bm y=0$。原问题是凸二次规划。严格可分时存在参数使$m=\min_i y_i f_i>0$。将$\bm w,b$共同乘以大于$1/m$的数后，所有约束都严格满足，满足Slater条件，所以强对偶成立，原问题和对偶问题有相同最优值。
 
-Karush--Kuhn--Tucker条件（KKT条件）包含驻点条件、原始可行性、对偶可行性和互补松弛。这里的互补松弛是
+卡鲁什--库恩--塔克（Karush--Kuhn--Tucker，KKT）条件包含驻点条件、原始可行性、对偶可行性和互补松弛。这里的互补松弛是
 \begin{equation}
  \alpha_i\{y_if(\bm x_i)-1\}=0.
  \label{eq:svm-hard-kkt}
@@ -88,7 +88,7 @@ Karush--Kuhn--Tucker条件（KKT条件）包含驻点条件、原始可行性、
 \subsection{两点算例}
 一维训练集为$(x_1,y_1)=(-1,-1)$、$(x_2,y_2)=(1,+1)$。约束是$w-b\ge1,w+b\ge1$，因此$w\ge1$，最优解为$w=1,b=0$。对偶约束令$\alpha_1=\alpha_2=a$，目标变成$2a-2a^2$。令导数$2-4a=0$，得到$a=1/2$。由式\eqref{eq:svm-stationarity}重建$w=1$。两点都是支持向量，间隔宽度为2。
 
-\section{重叠类别怎样改变目标与支持向量}
+\section{软间隔目标与支持向量}
 \subsection{松弛变量与合页损失}
 引入$\xi_i\ge0$允许违反规范化间隔，软间隔目标为
 \begin{equation}
@@ -102,7 +102,7 @@ Karush--Kuhn--Tucker条件（KKT条件）包含驻点条件、原始可行性、
 
 若采用平均损失目标$\lambda\|\bm w\|^2/2+n^{-1}\sum_i\max(0,1-y_if_i)$，与式\eqref{eq:svm-soft-margin-primal}等价的参数关系为$C=1/(n\lambda)$。比较不同软件或样本量时要核对这一约定。
 
-\subsection{软间隔对偶的上界从哪里来}
+\subsection{软间隔对偶与箱约束}
 用$\alpha_i\ge0$处理间隔约束，用$\beta_i\ge0$处理$\xi_i\ge0$：
 \begin{equation}
  \mathcal L=\tfrac12\|\bm w\|^2+C\sum_i\xi_i
@@ -110,28 +110,28 @@ Karush--Kuhn--Tucker条件（KKT条件）包含驻点条件、原始可行性、
 \end{equation}
 对$\xi_i$求导得$C-\alpha_i-\beta_i=0$。结合非负性得到$0\le\alpha_i\le C$。对$\bm w,b$的驻点条件仍为式\eqref{eq:svm-stationarity}。因此
 \begin{equation}
- \max_{\bm\alpha}\ \bm1^{\mathsf T}\bm\alpha-	frac12\bm\alpha^{\mathsf T}YKY\bm\alpha,
+ \max_{\bm\alpha}\ \bm1^{\mathsf T}\bm\alpha-\frac12\bm\alpha^{\mathsf T}YKY\bm\alpha,
  \quad 0\le\alpha_i\le C,\quad \bm y^{\mathsf T}\bm\alpha=0,
  \label{eq:svm-dual}
 \end{equation}
-其中$Y=\diag(y_1,\ldots,y_n)$，线性情形$K_{ij}=\bm x_i^{\mathsf T}\bm x_j$。软间隔可以取足够大的正松弛量取得严格可行点，故也满足强对偶。互补条件是
+其中$\bm\alpha,\bm y\in\R^n$分别收集乘子和标签，$\bm1\in\R^n$是全1向量，$Y=\diag(y_1,\ldots,y_n)$，$K\in\R^{n\times n}$。线性情形$K_{ij}=\bm x_i^{\mathsf T}\bm x_j$。软间隔可以取足够大的正松弛量取得严格可行点，故也满足强对偶。互补条件是
 \begin{equation}
  \alpha_i(y_if_i-1+\xi_i)=0,\qquad (C-\alpha_i)\xi_i=0.
 \end{equation}
-它们解释了三种系数：$\alpha_i=0$的点满足$y_if_i\ge1$。$0<\alpha_i<C$的点有$\xi_i=0,y_if_i=1$，是自由支持向量。$\alpha_i=C$的点有$y_if_i\le1$，可能在边界上、间隔内或已经错分。
+在最优解处，这些条件给出三类系数的含义。$\alpha_i=0$的点满足$y_if_i\ge1$。$0<\alpha_i<C$的点有$\xi_i=0,y_if_i=1$，是自由支持向量。$\alpha_i=C$的点有$y_if_i\le1$，可能在边界上、间隔内或已经错分。
 
 对任一自由支持向量$s$，截距为
 \begin{equation}
  b=y_s-\sum_i\alpha_i y_i K_{is}.
  \label{eq:svm-bias}
 \end{equation}
-实际可对多个自由支持向量取平均。若没有自由支持向量，不能任意选一个$\alpha_s=C$的点套用这个等式。应利用KKT不等式确定$b$的可行区间，由二次规划求解器处理这一情形。
+实际可对多个自由支持向量取平均。若没有自由支持向量，不能任意选一个$\alpha_s=C$的点套用这个等式。应利用KKT不等式确定$b$的可行区间。令$h_i=\sum_j\alpha_jy_jK_{ji}$。当$\alpha_i=0,y_i=+1$或$\alpha_i=C,y_i=-1$时，有$b\ge y_i-h_i$。另外两种组合给出$b\le y_i-h_i$。对所有下界取最大值、对所有上界取最小值，即得可行区间。数值求解时需为乘子的边界判断设定容差。
 
-\section{核化怎样形成非线性边界}
-\subsection{为什么核化发生在对偶问题}
+\section{特征空间中的非线性分类}
+\subsection{特征空间中的样本展开}
 若直接在特征空间中求解原始问题，参数$\bm w\in\mathcal H$可能是无限维对象，不能按坐标存储。对偶推导消除了这个参数：由驻点条件，最优方向总在训练特征向量$\phi(\bm x_i)$的张成空间中，因而只需要训练样本之间的内积。把线性情形的内积
 \[
- \phi(\bm x_i)^{\mathsf T}\phi(\bm x_j)
+ \langle\phi(\bm x_i),\phi(\bm x_j)\rangle_{\mathcal H}
 \]
 替换成核函数$k(\bm x_i,\bm x_j)$，便得到可计算的特征空间分类器。这个替换必须发生在所有内积位置，包括训练二次项和新样本预测，不能只把最终的线性公式局部替换。
 
@@ -143,7 +143,7 @@ Karush--Kuhn--Tucker条件（KKT条件）包含驻点条件、原始可行性、
 \end{equation}
 代回目标函数后，训练只需要矩阵$K$。因此核方法的非线性来自特征映射，而计算仍在样本对的相似性上进行。
 
-\subsection{核矩阵如何进入对偶与预测}
+\subsection{核矩阵与预测函数}
 若将$\bm x$换成$\phi(\bm x)\in\mathcal H$，上述推导只把内积换成$k(\bm x_i,\bm x_j)$。式\eqref{eq:svm-dual}的结构不变，预测是
 \begin{equation}
  f(\bm x)=\sum_{i:\alpha_i>0}\alpha_i y_i k(\bm x_i,\bm x)+b.

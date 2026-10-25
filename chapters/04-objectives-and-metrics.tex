@@ -1,16 +1,16 @@
-\chapter{回归、分类与聚类：训练目标与评价指标}
+\chapter{回归、分类与聚类的训练目标与评价指标}
 \label{chap:objectives-metrics}
 \begin{quote}\small
 \textit{本章摘要。}一个模型需要先通过训练目标学习参数，再用评价指标检查它在新数据上的表现。训练目标规定什么样的错误会被惩罚，评价指标规定报告时关心什么结果。二者有时相同，有时不同。理解这种差别，才能解释为什么训练损失下降后，模型的实际表现仍可能不理想。本章分别讨论回归、分类和聚类，并说明每种任务中的常用目标、指标及其适用条件。
 \end{quote}
 
-训练样本记为$(\bm x_i,y_i)$。模型用参数$\theta$给出预测$f_\theta(\bm x_i)$，再根据预测和标签之间的差异计算损失。常见的经验目标可以写成
+训练集记为$\mathcal D_{\mathrm{train}}=\{(\bm x_i,y_i)\}_{i=1}^n$。模型用参数$\theta$给出预测$f_\theta(\bm x_i)$，再根据预测和标签之间的差异计算损失。常见的经验目标可以写成
 
 \begin{equation}
- \hat{\theta}=\argmin_{\theta}\frac1n\sum_{i=1}^n\ell(f_\theta(\bm x_i),y_i)+\Omega(\theta).
+ \hat{\theta}=\argmin_{\theta}\left[\frac1n\sum_{i=1}^n\ell(f_\theta(\bm x_i),y_i)+\Omega(\theta)\right].
  \label{eq:pipeline-general-objective}
 \end{equation}
-其中$\ell$是单个样本的损失，决定模型如何惩罚预测错误，$\Omega$是可选的正则项。评价指标$M$则在固定的测试集和报告规则下衡量预测质量。若$M$不是$\ell$的同一个平均形式，训练和评价之间就存在目标差异，需要说明这种差异的原因。
+其中$n\geq1$是训练样本数，$\ell$是单个样本的损失，$\Omega$是可选的正则项。方括号中的量是训练经验目标。若$\Omega$不为零，它通常不是单个样本损失的平均值。验证集用于选择模型或训练设置，测试集用于最终评价。评价指标$M$在预先规定的数据划分和计算规则下衡量预测质量。若$M$不是$\ell$的同一个平均形式，训练目标与评价目标就存在差异，需要说明为何采用这种训练目标，以及如何检查最终关心的指标。
 
 \section{回归：连续数值的预测}
 设真实值为$y_i\in\R$，预测值为$\hat y_i=f_\theta(\bm x_i)$，误差记为$e_i=\hat y_i-y_i$。回归损失主要区别在于对大误差、方向性误差和异常值的处理方式。
@@ -373,7 +373,7 @@ $K$中心最小化最大簇内距离，强调最坏样本；$K$中位数使用
 \centering
 \caption{三类任务中目标函数与评价指标的侧重点。}
 \label{tab:pipeline-objectives-metrics}
-\begin{tabular}{p{0.15\textwidth}p{0.25\textwidth}p{0.25\textwidth}p{0.25\textwidth}}
+\begin{tabular}{m{0.15\textwidth}m{0.25\textwidth}m{0.25\textwidth}m{0.25\textwidth}}
 \toprule
 任务 & 典型目标函数 & 典型评价指标 & 主要限制 \\
 \midrule

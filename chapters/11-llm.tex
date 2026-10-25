@@ -37,7 +37,11 @@
 \end{equation}
 其中$p_t\in\R^{V_{\rm voc}}$为预测概率向量，$e_{x_t}$在真实词元处为一、其他位置为零；$\mathbf1_{j=x_t}$是对应的指示量。由此得到的$d$维梯度继续向前传播。计算对数求和指数时，常取$m=\max_k z_k$，写成$\log\sum_ke^{z_k}=m+\log\sum_ke^{z_k-m}$，以免直接计算指数时溢出。
 
-实现时须区分两种掩码。因果注意力掩码规定某个位置\emph{能读取}哪些词元，损失掩码规定哪些输出\emph{参与计分}。例如指令微调可以只在回答位置计损失，同时让回答读取整段问题。填充位置不计分，损失应按实际计分的词元数归一化。此外，部分训练接口会自动把标签右移；若又手工移位，输入和目标就会错位。无论采用何种接口，目标$x_t$都不能出现在预测它的可见前缀中。
+训练时可一次输入整段右移后的真实 token，并用因果遮罩并行计算所有位置。设批量输入为 $X\in\{1,\ldots,V_{\rm voc}\}^{B\times T}$，第 $t$ 个输出的目标是同一样本的 $x_t$，而该位置的输入只包含 $x_{<t}$。因果遮罩可写为 $M\in\mathbb{R}^{T\times T}$，其中
+\[
+ M_{ij}=\begin{cases}0,&j\leq i,\\-\infty,&j>i.\end{cases}
+\]
+加入注意力得分后，位置 $i$ 的 softmax 权重在数学上只落在 $j\leq i$ 的位置。实际实现常用布尔遮罩或足够小的有限数代替 $-\infty$。填充位置不计损失，指令微调还可只对回答位置计损失。注意力遮罩控制能读取哪些位置，损失掩码控制哪些输出计分，二者不能互换。不计提示损失仍可允许回答读取提示。部分模型接口内部完成标签移位，传入前须核对接口约定，避免手动移位后再次被内部移位。损失应除以实际计分 token 数，而不是补齐后的矩阵大小。训练并行不改变生成时必须逐步追加未知 token 的事实。
 
 固定输入前缀$c$，设训练数据中下一个词元的真实条件分布为$q(\cdot\mid c)$，则期望交叉熵分解为
 \begin{equation}
@@ -47,14 +51,15 @@
 
 词表的设计还会影响计算成本。词表较小，罕见字符串往往被拆成更多词元，序列随之变长；词表较大，嵌入与输出层的参数增多，低频词元也更难充分训练。设备编号、故障码和计量单位尤其容易被切碎，部署时应检验模型能否完整抄录。由于标准自注意力的计算量随序列长度近似二次增长，估计上下文成本应数词元，而不是数字符。
 
-因果 Transformer 怎样利用前缀？设某层输入为矩阵$H$。注意力先把它投影为查询、键和值，再由查询与键的相似度决定读取各个值的权重：
+自注意力先把输入表示投影为查询、键和值。对单条长度为 $T$ 的序列，令 $H\in\mathbb{R}^{T\times d}$，其中每一行是一个位置的 $d$ 维表示。若单头的键维度为 $d_k$，值维度为 $d_v$，且
+\[
+ W_Q,W_K\in\mathbb{R}^{d\times d_k},\qquad W_V\in\mathbb{R}^{d\times d_v},
+\]
+则
 \begin{equation}
- Q=HW_Q,\quad K=HW_K,\quad V=HW_V,
- \qquad A=\operatorname{softmax}\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}+M\right),
+ Q=HW_Q,\quad K=HW_K,\quad V=HW_V,\qquad A=\operatorname{softmax}_{\rm row}\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}+M\right).
 \end{equation}
-其中$d_k$是键的宽度，softmax 按行计算。掩码$M$在$j>i$时取$-\infty$，其他位置取零，于是第$i$个位置只会给自己和此前位置分配权重。这是“因果”的含义：训练时可以并行算出所有位置的输出，但每个输出仍服从从左到右的信息约束。
-
-若序列长$T$、表示宽$d$，则$H\in\R^{T\times d}$，$W_Q,W_K\in\R^{d\times d_k}$，$W_V\in\R^{d\times d_v}$。因此权重矩阵$A\in\R^{T\times T}$，读出的内容$AV\in\R^{T\times d_v}$。例如某一行仅有两个可见位置，得分为$0$与$\log3$，对应权重便是$1/4$与$3/4$：模型对两个位置加权读取，而非只挑一个。多头注意力使用不同投影，拼接后还需映射回宽度$d$；前馈层逐位置加工表示，残差与归一化帮助深层网络训练。注意力头可能形成不同分工，但不能仅凭头的编号赋予它固定语义。
+这里 $Q,K\in\mathbb{R}^{T\times d_k}$，$V\in\mathbb{R}^{T\times d_v}$，$QK^{\mathsf T}\in\mathbb{R}^{T\times T}$，所以 $A\in\mathbb{R}^{T\times T}$，输出为 $AV\in\mathbb{R}^{T\times d_v}$。$\operatorname{softmax}_{\rm row}$ 表示每一行沿键的位置归一化。自回归模型使用上段定义的因果遮罩，当前位置不能读取后续 token。多头注意力为第 $h$ 个头使用各自的投影矩阵，得到多个 $T\times d_v$ 输出，沿最后一维拼接后再用投影矩阵恢复到 $d$ 维。只有恢复到 $d$ 维，结果才可与残差分支相加。
 
 归一化与残差的次序也是结构选择。预归一化把归一化放在注意力或前馈层之前，残差分支因此保留较直接的梯度通路；后归一化则在相加之后处理表示。图\ref{fig:llm-computation-chain}概括了这些层怎样把词元序列变成词表得分，箭头表示前向计算，图中的因果注意力仍须遵守上述可见性约束。
 
@@ -228,41 +233,23 @@ MoE 语言模型 & 路由器选择少数专家 & 总容量大而激活成本可�
 缓存占用也随上下文增长，实际服务还要隔离不同会话并清理敏感内容。量化虽可降低内存成本，对故障码、数值、单位及工具参数的影响却应单独测试。至此讨论的解码与计算优化都只作用于已有模型；若回答需要最新规程，就要引入可更新的外部文档。
 
 \section{检索、工具与安全边界}
-\subsection{先取得适用证据，再组织回答}
-预训练学到的文本分布会随语料固定；设备手册却会修订。检索增强生成（Retrieval-Augmented Generation，RAG）因此把资料查询放到回答时进行：给定问题$q$，检索器返回文档片段$D_q$，生成模型再以$q,D_q$为条件产生回答$y$\cite{lewis2020rag}。对工业规程而言，查到\emph{相关}段落还不够，必须先确认该段适用于当前型号、工况、日期与访问权限。
+检索增强生成将外部检索证据与生成模型结合。Retrieval-Augmented Generation（RAG）的代表性实现用于知识密集任务\cite{lewis2020rag}。工业手册检索还需要约束版本、生效时间和权限。这些约束属于系统规则，不能由生成模型自行保证。
+\paragraph{检索增强生成。}
+给定查询 $q$，检索器返回文档片段集合 $D_q$，生成器计算 $p_\theta(y\mid q,D_q)$。这一步只改变当前输入条件，通常不更新生成器权重，也不等价于继续训练。系统错误至少包括召回错误、排序错误、上下文理解错误和生成错误。评估时应分别测量检索召回、引用是否支持答案、答案正确性、答案完整性和拒答质量。检索结果只能提供候选证据，不能把不存在的证据变成可靠事实。
 
-设人员询问“型号 M7 何时复检”。离线阶段可按章节切分手册，为每个片段保存标题、版本、页码与有效期，并建立检索索引。在线阶段先根据问题中的型号、日期及权限限定可搜索集合，再做相似度召回。双编码器分别计算问题与文档向量，文档向量可以预先缓存；交叉编码器把问题与少量候选共同输入，再精细比较。两者分别适合大范围召回与候选重排。
+\paragraph{从一个问题走完检索链。}
+假设问题指定了设备型号和当前日期。离线先把手册切为保留标题、版本和页码的片段，用文档编码器将每段映射为$d$维向量并存入索引；在线把问题映射为同维向量，在权限与生效时间允许的片段中检索候选。双编码器分别编码问题和片段，便于缓存；交叉编码器（cross-encoder）把问题与某个候选共同输入再打分，更适合少量候选重排，不能直接复用独立文档向量。
 
-假设返回的一个片段只写适用条件，另一个片段虽写了处理步骤，却来自旧版手册。把两段拼接起来会产生一条原文从未给出的操作建议。此时应继续查找完整条款，找不到就说明缺少依据。图\ref{fig:llm-rag-validity}用两版阈值展示同一道理：v2 与问题在字面上相关，但已过期，只能让 v3 进入回答上下文。
+若返回两段，一段有适用条件但没有处理步骤，另一段有步骤但属于已失效版本，不能因为两段都“相似”就拼成可执行结论。应继续找完整有效证据或拒答。普通RAG查询通常既不更新生成器权重，也不更新检索器权重，只改变送进上下文的文字；文档更新后需同步更新索引，若编码器版本改变还需重建对应表示。检索片段中的词元也占上下文长度，更多片段可能挤掉关键条件。
 
-图中的阈值仅为教学设定，不代表真实设备规程。实际 RAG 查询通常不会更新模型参数，只改变本次可见的文档内容。手册修订后应更新索引；编码器版本改变后，还须重算文档向量。检索片段也占上下文长度，选入太多可能挤掉真正决定适用性的条件。
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[node distance=0.5cm, every node/.style={font=\small}]
- \node[idi input,text width=2.1cm] (query) at (0,2.2) {问题：M7 何时复检？};
- \node[idi input,text width=2.1cm] (current) at (0,0) {M7 手册 v3\\当前有效\\$80\,^{\circ}\mathrm C$ 复检};
- \node[idi input,text width=2.1cm] (old) at (0,-2.2) {M7 手册 v2\\已失效\\$75\,^{\circ}\mathrm C$ 复检};
- \node[idi process,text width=1.8cm] (filter) at (3.1,0) {型号、有效期\\和权限过滤};
- \node[idi state,text width=1.6cm] (evidence) at (6,0) {可用证据\\v3 条款};
- \node[idi output,text width=2.0cm] (answer) at (9,0) {达到 $80\,^{\circ}\mathrm C$ 复检\\引用 v3};
- \draw[idi arrow] (query.east)--(filter.north west);
- \draw[idi arrow] (current.east)--(filter.west);
- \draw[idi arrow,dashed] (old.east)--node[below,font=\scriptsize] {排除} (filter.south west);
- \draw[idi arrow] (filter.east)--(evidence.west);
- \draw[idi arrow] (evidence.east)--(answer.west);
-\end{tikzpicture}
-\caption{有效期约束下的手册问答示意。输入为问题与两版候选条款；实线箭头表示筛选和传递，虚线表示已失效条款被排除。阈值仅用于教学，不代表真实设备规程。}
-\label{fig:llm-rag-validity}
-\end{figure}
-
-\subsection{检索得分与证据覆盖}
-检索器怎样学会区分条款？设查询编码器$f_\phi$与文档编码器$g_\phi$输出归一化的$d$维向量，以内积$s_\phi(q,d)=f_\phi(q)^{\mathsf T}g_\phi(d)$打分。给定一个相关片段$d^+$与候选集合$\mathcal C$，可以用如下对比损失训练检索器：
-\begin{gather}
- P_\phi(d\mid q,\mathcal C)=\frac{\exp(s_\phi(q,d)/\tau_r)}{\sum_{d'\in\mathcal C}\exp(s_\phi(q,d')/\tau_r)},\\
- \ell_{\rm ret}=-\log P_\phi(d^+\mid q,\mathcal C),\qquad \tau_r>0,\\
- \frac{\partial\ell_{\rm ret}}{\partial s_\phi(q,d)}=\frac{P_\phi(d\mid q,\mathcal C)-\mathbf1_{d=d^+}}{\tau_r}.\label{eq:llm-retrieval-gradient}
-\end{gather}
-式\eqref{eq:llm-retrieval-gradient}表明，若各候选得分能独立调整，下降方向会提高正例的相对得分、降低其他候选的得分。实际编码器参数由多组样本共享，更新效果须在验证集检验。更重要的是，$P_\phi(d\mid q,\mathcal C)$仅在候选集合$\mathcal C$内归一化，不是“这段文档必然支持答案”的概率。训练样本中也可能有多个正确条款，不能把另一份有效证据误标为负例。权限和有效期应先确定集合$\mathcal D(q)$，相似度只负责在其中排序。
+\paragraph{检索得分、训练目标与证据边缘化。}
+设查询编码器$f_\phi$与文档编码器$g_\phi$输出$\R^d$中的非零向量，归一化后得分为$s_\phi(q,d)=f_\phi(q)^{\mathsf T}g_\phi(d)$。给定一个相关文档$d^+$和候选集合$\mathcal C$，对比检索损失为
+\begin{align}
+ P_\phi(d\mid q,\mathcal C)&=\frac{\exp(s_\phi(q,d)/\tau_r)}{\sum_{d'\in\mathcal C}\exp(s_\phi(q,d')/\tau_r)},\\
+ \ell_{\rm ret}&=-\log P_\phi(d^+\mid q,\mathcal C),\qquad \tau_r>0,\\
+ \frac{\partial\ell_{\rm ret}}{\partial s_\phi(q,d)}&=\frac{P_\phi(d\mid q,\mathcal C)-\mathbf1_{d=d^+}}{\tau_r}.\label{eq:llm-retrieval-gradient}
+\end{align}
+若把候选得分视为独立变量，式\eqref{eq:llm-retrieval-gradient}的下降方向提高正例得分、降低负例得分；实际共享编码器还会汇总不同样本的梯度，不保证每对向量距离都按此方向变化。所得概率仅相对于候选集合归一化，不是文档支持答案的校准概率。同型号不同版本尤其适合作为需要区分的候选，却必须避免把另一份同样有效的证据错误标成负例。权限和有效期先定义可搜索集合$\mathcal D(q)$，相似度排序只在这个集合内进行。
 
 还可以用一个\emph{理想化的概率模型}理解检索与生成的连接：假设回答依赖某一份未直接指定的文档$d$，便对所有允许文档求和，得到
 \begin{equation}
