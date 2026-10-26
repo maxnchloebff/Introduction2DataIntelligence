@@ -80,7 +80,7 @@
 \[
  \left\|\sum_{i=1}^n\delta_i k(\cdot,\bm x_i)\right\|_{\mathcal H}^2=\bm\delta^{\mathsf T}K\bm\delta=0.
 \]
-零范数元素是$\mathcal H$中的零函数。因此，$\bm\alpha$与$\bm\alpha+\bm\delta$表示同一函数。$K$奇异时系数可不唯一，但相应训练展开函数相同。平方损失加正范数惩罚对$\mathcal H$中的函数严格凸，故最优函数唯一。式\eqref{eq:krr-solution}通过正定线性系统选出唯一系数代表。
+零范数元素是$\mathcal H$中的零函数。因此，$\bm\alpha$与$\bm\alpha+\bm\delta$表示同一函数。$K$奇异时系数可不唯一，但相应训练展开函数相同。前面的函数唯一性结论因而与系数不唯一相容。式\eqref{eq:krr-solution}通过正定线性系统选出唯一系数代表，其他最优展开系数与它的差属于$\ker K$。
 
 本章采用平均损失。若书中使用误差总和加$C\|f\|^2$，对应$C=n\lambda$，求解矩阵写为$K+CI$。$C$在该回归目标中是范数惩罚系数，与SVM中乘在误差上的$C$作用相反，不能只根据字母判断参数含义。
 
@@ -91,21 +91,21 @@
  =V\diag\left(\frac{\kappa_j}{\kappa_j+n\lambda}\right)V^{\mathsf T}\bm y.
  \label{eq:krr-spectral-shrinkage}
 \end{equation}
-这将标签在核特征方向上的分量乘以0到1之间的系数。小特征值方向收缩更强，零特征值方向不能拟合。若$K$严格正定且$\lambda\to0$，训练预测趋向$\bm y$。插值并不保证测试误差低。
+这里$V\in\R^{n\times n}$的列为单位正交特征向量，$\kappa_j$为对应特征值。$V^{\mathsf T}\bm y$先将训练目标写到这些样本空间方向上，对角矩阵再逐方向收缩，最后乘$V$恢复训练预测。收缩系数位于$[0,1)$，小特征值方向收缩更强，零特征值方向不能拟合。这些方向属于$n$维训练值空间，不能直接当作原输入的坐标方向。若$K$严格正定且$\lambda\to0$，训练预测趋向$\bm y$。插值并不保证测试误差低。
 
 例如$K=\left(\begin{smallmatrix}1&1/2\\1/2&1\end{smallmatrix}\right)$、$\bm y=(1,-1)^{\mathsf T}$，取$n\lambda=1/2$。$\bm y$属于特征值$1/2$的方向，故$\hat{\bm\alpha}=\bm y$，训练预测为$(1/2,-1/2)^{\mathsf T}$。对核向量$(3/4,1/4)^{\mathsf T}$的新输入，预测为$1/2$。较大的范数惩罚使训练值向零收缩，这与使用零均值函数基准的约定有关。
 
 \section{截距中心化与数值求解}
 有些任务需要整体均值水平，但不希望函数范数惩罚截距。写预测为$f(\bm x)+b$，其中只惩罚$f$。对固定的$\bm\alpha$，训练残差平方和关于$b$的导数为$-2\bm1^{\mathsf T}(\bm y-K\bm\alpha-b\bm1)/n$。令其为零，得到平均残差为零。
 
-令$\bm1\in\R^n$为全一向量。对$\bm\alpha$和$b$分别求导，联合驻点系统为
+令$\bm1\in\R^n$为全一向量。关于系数的梯度条件为$K\{(K+n\lambda I_n)\bm\alpha+b\bm1-\bm y\}=0$，关于截距的条件为$\bm1^{\mathsf T}(K\bm\alpha+b\bm1-\bm y)=0$。即使$K$奇异，也可以选取满足以下系统的系数代表，不能直接在梯度条件中约去$K$：
 \begin{equation}
  \begin{pmatrix}K+n\lambda I_n&\bm1\\\bm1^{\mathsf T}&0\end{pmatrix}
  \begin{pmatrix}\bm\alpha\\b\end{pmatrix}
  =\begin{pmatrix}\bm y\\0\end{pmatrix}.
  \label{eq:krr-unpenalized-intercept}
 \end{equation}
- 这里$I_n$是$n$阶单位矩阵，$\bm1\in\R^n$是全一向量。由第二行可得$\bm1^{\mathsf T}\bm\alpha=0$，从第一行左乘$\bm1^{\mathsf T}/n$可得$b=\bar y-\bm1^{\mathsf T}K\bm\alpha/n$，其中$\bar y=\bm1^{\mathsf T}\bm y/n$。该关系说明拟合残差均值为零。该对称鞍点系统在$K+n\lambda I_n$正定且$\lambda>0$时可逆。对齐次系统，第二行给出$\bm1^{\mathsf T}\bm\alpha=0$。将其与第一行左乘$\bm\alpha^{\mathsf T}$可得$\bm\alpha^{\mathsf T}(K+n\lambda I_n)\bm\alpha=0$，正定性遂推出$\bm\alpha=0$，继而$b=0$。实际计算可先中心化标签，再解对应的核方程。若输入也需中心化，均值必须只从训练集估计，再一致地应用于后续数据。把常数特征并入核且一并惩罚，得到的是不同模型。
+ 这里$I_n$是$n$阶单位矩阵，$\bm1\in\R^n$是全一向量。由第二行可得$\bm1^{\mathsf T}\bm\alpha=0$，从第一行左乘$\bm1^{\mathsf T}/n$可得$b=\bar y-\bm1^{\mathsf T}K\bm\alpha/n$，其中$\bar y=\bm1^{\mathsf T}\bm y/n$。该关系说明拟合残差均值为零。该对称鞍点系统在$K+n\lambda I_n$正定且$\lambda>0$时可逆。对齐次系统，第二行给出$\bm1^{\mathsf T}\bm\alpha=0$。将其与第一行左乘$\bm\alpha^{\mathsf T}$可得$\bm\alpha^{\mathsf T}(K+n\lambda I_n)\bm\alpha=0$，正定性遂推出$\bm\alpha=0$，继而$b=0$。也可令$H=I_n-\bm1\bm1^{\mathsf T}/n$，以$K_c=HKH$和$\bm y_c=H\bm y$求解$(K_c+n\lambda I_n)\bm\alpha=\bm y_c$，再按上述关系恢复$b$。只中心化标签而仍使用未中心化的核矩阵，一般不能得到同一个不惩罚截距的模型。这里中心化的是核特征，非线性核下它与中心化原始输入不同。所有均值均由训练集确定，新样本使用相同的训练统计量。把常数特征并入核且一并惩罚，得到的是不同模型。
 
 数值实现应解线性方程，例如使用Cholesky分解，不显式形成逆矩阵。正定移位使$K+n\lambda I_n$的最小特征值至少为$n\lambda$。其二范数条件数为$(\kappa_{\max}+n\lambda)/(\kappa_{\min}+n\lambda)$，其中$\kappa_{\max}$和$\kappa_{\min}$分别是$K$的最大与最小特征值。条件数描述线性系统对舍入误差和扰动的敏感程度，不衡量统计预测是否合适。数值稳定求解不能替代验证集上的正则强度选择。
 

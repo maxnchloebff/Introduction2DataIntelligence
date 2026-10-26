@@ -1,7 +1,7 @@
 \chapter{流形学习}
 \label{chap:manifold}
 \begin{quote}\small
-\textit{本章摘要。}本章研究高维观测中存在低维几何结构时，如何构造可解释的低维表示。内容从流形假设、内在维度和局部邻域开始，依次说明 Isomap、局部线性嵌入、拉普拉斯特征映射和扩散映射的机制，再讨论 t-SNE 与 UMAP 的可视化目标。最后给出方法选择、采样条件和结果解释的检查原则。低维图形描述的是所选几何目标，不能单独证明类别可分或预测有效。
+\textit{本章摘要。}本章研究高维观测中存在低维几何结构时，如何构造可解释的低维表示。内容从流形假设、内在维度和局部邻域开始，依次说明等距映射（Isometric Mapping，Isomap）、局部线性嵌入（Locally Linear Embedding，LLE）、拉普拉斯特征映射和扩散映射的机制，再讨论t分布随机邻域嵌入（t-Distributed Stochastic Neighbor Embedding，t-SNE）与统一流形逼近与投影（Uniform Manifold Approximation and Projection，UMAP）的可视化目标。最后给出方法选择、采样条件和结果解释的检查原则。低维图形描述的是所选几何目标，不能单独证明类别可分或预测有效。
 \end{quote}
 
 上一章讨论联邦学习如何在数据分散时训练模型。本章转向另一个问题。设备传感器可能记录几十个变量，但运行状态主要由负载、转速和磨损程度等少数连续因素决定。样本因此可能集中在高维空间的一条曲线或一个曲面附近。PCA 能找到一个最好的线性子空间，但折叠、弯曲或周期结构会使线性投影产生较大的失真。流形学习利用样本邻域推断局部几何，再按照不同目标构造低维坐标。
@@ -17,21 +17,22 @@
  \qquad \bm z_i\in\mathbb R^r,\quad 1\le r\ll d .
  \label{eq:manifold-generative}
 \end{equation}
-$\bm z_i$是潜在坐标，$g:\mathbb R^r\to\mathbb R^d$把状态因素映射到传感器空间，$\bm\varepsilon_i$是测量噪声或未建模变化。理想无噪声集合$\mathcal M=g(\mathcal Z)$称为$r$维流形的嵌入。局部光滑且雅可比矩阵$Dg(\bm z)$满列秩时，附近样本可以用$r$个局部坐标描述。满秩条件排除了局部塌缩。局部单射条件避免两个不同状态在一个小邻域内被混合。
+$\bm z_i$是潜在坐标，$g:\mathbb R^r\to\mathbb R^d$把状态因素映射到传感器空间，$\bm\varepsilon_i$是测量噪声或未建模变化。这里$\mathcal Z\subseteq\R^r$是一个局部坐标域，$g$在该域上光滑。若其雅可比矩阵$Dg(\bm z)\in\R^{d\times r}$满列秩，映射在足够小的邻域内不压缩自由度。要将整个像集$\mathcal M=g(\mathcal Z)$视为嵌入流形，还需排除自交，并要求$g$在像上具有连续的逆映射。一般流形可能需要多个局部坐标域共同描述，不能默认一套$\R^r$坐标覆盖全部结构。
 
-内在维度描述产生数据所需的局部自由度。它不等于观测变量的个数，也不等于某种算法输出的坐标数。圆周样本$(\cos t,\sin t)$只有一个内在维度，却需要两个观测坐标表示整条闭合曲线。若测量噪声与流形法向方向相当，算法看到的将是有厚度的管状点云，局部线性近似会变得不稳定。流形假设还要求采样覆盖足够均匀。只有曲线的一小段被观测到时，算法无法判断它属于直线、圆周还是更高维曲线。
+内在维度描述产生数据所需的局部自由度。它不等于观测变量的个数，也不等于某种算法输出的坐标数。圆周样本$(\cos t,\sin t)$只有一个内在维度，却需要两个观测坐标表示整条闭合曲线。若噪声在流形法向上的幅度与所用邻域尺度相当，算法看到的将是有厚度的点云，局部切空间估计容易受噪声影响。流形假设本身不要求均匀采样，但从有限样本恢复几何需要足够的局部覆盖。只有曲线的一小段被观测到时，算法无法判断它属于直线、圆周还是更高维曲线。
 
 图\ref{fig:manifold-folded-neighborhood}区分了局部欧氏距离和沿流形的距离。折叠曲线两段在观测空间中很近，但沿曲线行走需要经过较长路径。邻域半径过大时会把两段错误连接，邻域过小时图可能断开。
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[x=0.9cm,y=0.72cm]
  \draw[gray!30] (0,0) grid (7,4.2);
- \draw[blue!75!black,very thick] plot[smooth] coordinates {(0.4,0.7)(1.2,1.5)(2.1,2.8)(3.2,3.4)(4.2,2.7)(5.0,1.3)(6.1,0.8)};
- \foreach \x/\y in {0.4/0.7,1.2/1.5,2.1/2.8,3.2/3.4,4.2/2.7,5.0/1.3,6.1/0.8}{\fill[red!70!black] (\x,\y) circle (2pt);}
- \draw[orange!80!black,dashed] (2.1,2.8) circle (0.48cm);
- \draw[orange!80!black,dashed] (4.2,2.7) circle (0.48cm);
- \draw[<->,thick] (2.1,2.35)--(4.2,2.35) node[midway,below,font=\scriptsize]{欧氏距离较近};
- \draw[->,thick,gray!75!black] (2.2,3.05) .. controls (3.1,4.1) and (4.0,4.1) .. (4.1,3.0) node[midway,above,font=\scriptsize]{沿流形的路径};
+ \draw[blue!75!black,very thick] plot[smooth] coordinates {(0.5,0.6)(0.7,2.0)(1.5,3.5)(3.2,3.9)(4.8,3.5)(5.8,2.3)(5.5,1.0)(4.0,1.0)(2.1,2.0)(1.7,2.0)};
+ \foreach \x/\y in {0.5/0.6,0.7/2.0,1.5/3.5,3.2/3.9,4.8/3.5,5.8/2.3,5.5/1.0,4.0/1.0,2.1/2.0,1.7/2.0}{\fill[red!70!black] (\x,\y) circle (2pt);}
+ \draw[orange!80!black,dashed] (0.7,2.0) circle (0.27cm);
+ \draw[orange!80!black,dashed] (1.7,2.0) circle (0.27cm);
+ \draw[<->,thick] (0.7,1.55)--(1.7,1.55) node[midway,below,font=\scriptsize]{欧氏距离};
+ \draw[->,thick,gray!75!black] plot[smooth] coordinates {(0.9,2.2)(1.6,3.25)(3.2,3.65)(4.6,3.3)(5.5,2.3)(5.2,1.25)(4.0,1.25)(2.1,2.2)(1.8,2.2)};
+ \node[font=\scriptsize] at (3.3,4.45) {灰色箭头表示沿曲线的长路径};
 \end{tikzpicture}
 \caption{折叠曲线上的两类距离。局部邻域应沿曲线取点，过大的邻域会在折叠处形成捷径。图为定性示意。}
 \label{fig:manifold-folded-neighborhood}
@@ -48,14 +49,14 @@ PCA在中心化数据矩阵$X\in\mathbb R^{n\times d}$上寻找正交矩阵$V\in
  \min_{V^{\mathsf T}V=I_q}\|X-XVV^{\mathsf T}\|_F^2
  \label{eq:manifold-pca-baseline}
 \end{equation}
-最小化线性投影的平均平方重构误差。上一章已经说明它等价于保留协方差矩阵的前$q$个特征方向。该目标适合点云接近平面或线性子空间的情形。对弯曲曲线，投影会把相距很远的状态压到相近坐标。对圆周，单个线性坐标无法保持闭合结构。核PCA可在特征空间中弯曲表示，但核尺度决定邻域和全局几何，且原空间重建需要额外的原像假设\cite{scholkopf1998kpca}。
+最小化线性投影的残差平方和。除以样本数$n$即可得到平均误差，两者的极小点相同。这里$n$为样本数，$1\leq q\leq d$为输出维度，$I_q$为$q$维单位矩阵，$\|\cdot\|_F^2$累加矩阵全部元素的平方。第\ref{chap:pca}章已说明它等价于保留协方差矩阵的前$q$个特征方向。该目标适合点云接近平面或线性子空间的情形。对弯曲曲线，投影会把相距很远的状态压到相近坐标。对圆周，单个线性坐标无法保持闭合结构。核PCA可在特征空间中弯曲表示，但核尺度决定邻域和全局几何，且原空间重建需要额外的原像假设\cite{scholkopf1998kpca}。
 
-为了让非线性方法访问局部结构，定义无向邻域图$G=(\mathcal V,\mathcal E)$。节点集合$\mathcal V=\{1,\ldots,n\}$，若样本$i,j$互为近邻或满足半径条件，则$(i,j)\in\mathcal E$。图\ref{fig:manifold-neighborhood-graph}中的实线只连接局部近邻，Isomap沿这些边累加路径长度，LLE用这些邻居求局部重构权重，图谱方法则用边权惩罚相邻节点的坐标差异。图中的虚线捷径没有局部几何依据。若把它加入图中，Isomap的最短路径会被缩短，谱方法和扩散方法也会把折叠两侧错误地视为相近区域。边长记为$\ell_{ij}=\|\bm x_i-\bm x_j\|_2$。若算法需要相似度，可定义
+为了让非线性方法访问局部结构，定义无向邻域图$G=(\mathcal V,\mathcal E)$。节点集合$\mathcal V=\{1,\ldots,n\}$，近邻图需要声明对称化规则。可以在$i$将$j$视为近邻或$j$将$i$视为近邻时连边，也可以要求两者互为近邻。半径图则按距离是否小于给定阈值连边。这些规则产生的连通性可能不同。图\ref{fig:manifold-neighborhood-graph}中的实线只连接局部近邻，Isomap沿这些边累加路径长度，LLE用这些邻居求局部重构权重，图谱方法则用边权惩罚相邻节点的坐标差异。图中的虚线捷径没有局部几何依据。若把它加入图中，Isomap的最短路径会被缩短，谱方法和扩散方法也会把折叠两侧错误地视为相近区域。边长记为$\ell_{ij}=\|\bm x_i-\bm x_j\|_2$。若算法需要相似度，可定义
 \begin{equation}
  w_{ij}=\exp\left(-\frac{\ell_{ij}^2}{4t}\right),\qquad t>0,
  \label{eq:manifold-heat-weight}
 \end{equation}
-并令未连边权重为$0$。$\ell_{ij}$是距离，$w_{ij}$是相似度。两者在后续目标中承担不同作用。
+并令未连边权重为$0$。这里$t$是核尺度参数，与$\ell_{ij}^2$具有相同量纲。$\ell_{ij}$是距离，$w_{ij}$是无量纲相似度，两者在后续目标中承担不同作用。此处的$t$与后文随机游走的步数无关。
 
 \begin{figure}[htbp]
 \centering
@@ -88,12 +89,12 @@ $p$遍历图中从$i$到$j$的路径。连通时，该距离沿邻域图累加�
  \qquad B=-\frac12HD^{(2)}H .
  \label{eq:isomap-cmds}
 \end{equation}
-$\bm1$是$n$维全1向量，$H$去除坐标平移，$B$是由距离双中心化得到的内积矩阵。若距离来自欧氏点集，则$B$半正定。设$B=U\Lambda U^{\mathsf T}$，按正特征值降序排列，取前$q$个正特征值组成$U_q,\Lambda_q$，坐标为
+$\bm1$是$n$维全1向量，$H$去除坐标平移，$B$是由距离双中心化得到的内积矩阵。若距离来自欧氏点集，则$B$半正定。设$B=U\Lambda U^{\mathsf T}$，按正特征值降序排列，在至少有$q$个正特征值时，取对应特征向量组成$U_q\in\R^{n\times q}$，取正特征值组成对角矩阵$\Lambda_q\in\R^{q\times q}$，坐标为
 \begin{equation}
  Z=U_q\Lambda_q^{1/2}.
  \label{eq:isomap-coordinates}
 \end{equation}
-因为$ZZ^{\mathsf T}=U_q\Lambda_qU_q^{\mathsf T}$，它是在低秩意义下逼近图距离所对应内积的坐标。若$B$出现显著负特征值，说明图距离未能形成可靠的欧氏几何或邻域图受到噪声和捷径影响。Isomap的全局距离保持目标对采样覆盖和图连通性敏感。
+因为$ZZ^{\mathsf T}=U_q\Lambda_qU_q^{\mathsf T}$，它是在低秩意义下逼近图距离所对应内积的坐标。若$B$出现显著负特征值，说明这些距离不能由某个欧氏点集精确实现。这可能来自曲面本身无法在所选维度中无失真展开，也可能来自采样、噪声或图捷径，不能仅凭负特征值认定数据有误。Isomap的全局距离保持目标对采样覆盖和图连通性敏感。
 
 \section{LLE的局部重构坐标}
 \subsection{局部权重的计算}
@@ -102,7 +103,7 @@ LLE同样在2000年提出，但它不要求恢复所有点对的全局距离\cit
  \sum_{j\in\mathcal N_i}w_{ij}=1 .
  \label{eq:lle-affine-constraint}
 \end{equation}
-权重通过
+这里的$w_{ij}$是局部仿射权重，允许为负，与前节非负的相似度边权含义不同。局部权重通过
 \begin{equation}
  \min_{\{w_{ij}\}}\left\|\bm x_i-\sum_{j\in\mathcal N_i}w_{ij}\bm x_j\right\|_2^2
  \label{eq:lle-local-objective}
@@ -114,7 +115,7 @@ LLE同样在2000年提出，但它不要求恢复所有点对的全局距离\cit
  \bm w_i=\frac{C_i^{-1}\bm1_k}{\bm1_k^{\mathsf T}C_i^{-1}\bm1_k}.
  \label{eq:lle-local-weights}
 \end{equation}
-其中$\bm1_k$为$k$维全1向量。推导来自$2C_i\bm w_i-\lambda\bm1_k=0$和$\bm1_k^{\mathsf T}\bm w_i=1$。当邻域点近似共面或$k>d$时，$C_i$常为奇异或病态。可用$C_i+\alpha\operatorname{tr}(C_i)I_k$替代$C_i$，其中$\alpha>0$是正则化系数，但这会改变局部重构关系。
+其中$\bm1_k$为$k$维全1向量。推导来自$2C_i\bm w_i-\lambda\bm1_k=0$和$\bm1_k^{\mathsf T}\bm w_i=1$。当邻域点近似共面或$k>d$时，$C_i$常为奇异或病态。可用$C_i+\alpha\operatorname{tr}(C_i)I_k$替代$C_i$，其中$\operatorname{tr}$为矩阵迹，$I_k$为$k$维单位矩阵，$\alpha>0$为正则化系数。这会改变局部重构目标。若邻域点全部重合而使$\operatorname{tr}(C_i)=0$，该修正仍然为零，需要去除重复点或另设严格正的对角扰动。实际计算可先解线性系统$C_i v=\bm1_k$，再归一化$v$，无需显式求逆。
 
 \subsection{从重构保持到特征问题}
 令$Y\in\mathbb R^{n\times q}$为低维坐标矩阵，并令$y_i^{\mathsf T}$为第$i$行。LLE要求原空间的重构权重在低维空间中仍然成立，因此最小化
@@ -132,20 +133,20 @@ $W\in\mathbb R^{n\times n}$是稀疏权重矩阵。为排除所有坐标相同�
  \frac12\sum_{i,j}w_{ij}(f_i-f_j)^2=f^{\mathsf T}(D-W)f.
  \label{eq:laplacian-energy}
 \end{equation}
-左侧逐边惩罚相邻点的坐标差异。右侧定义图拉普拉斯矩阵$L=D-W$。取$\operatorname{diag}(f^{\mathsf T}Df)=1$并排除常数解，可求解广义特征问题
+左侧逐边惩罚相邻点的坐标差异。右侧定义图拉普拉斯矩阵$L=D-W$。这里需使用非负对称权重，且各节点度$d_i>0$。对一维坐标规定$f^{\mathsf T}Df=1$和$f^{\mathsf T}D\bm1=0$，分别固定尺度并排除常数解。对受约束的二次目标求驻点，得到广义特征问题
 \begin{equation}
  Lf=\lambda Df.
  \label{eq:laplacian-eigenproblem}
 \end{equation}
-最小的非零特征向量提供低维坐标。若图断裂，$L$有多个零特征值，每个连通分量都贡献一个常数向量，坐标可能只是在编码分量，而非流形内部位置。
+这里$\lambda$是广义特征值。图连通时，按最小的$q$个非零特征值选取相应特征向量，并使各向量关于$D$正交，即可形成$q$维坐标。若图断裂，$L$有多个零特征值，每个连通分量都贡献一个常数向量，坐标可能只是在编码分量，而非流形内部位置。
 
 \subsection{扩散映射的多步邻域}
-扩散映射把一次邻域相似度扩展为多步随机游走\cite{coifman2006diffusion}。令$P=D^{-1}W$，则$P_{ij}$是从节点$i$一步转移到$j$的概率。$P^t$给出$t$步转移概率。用合适的平稳分布$\pi$加权，扩散距离可写为
+扩散映射把一次邻域相似度扩展为多步随机游走\cite{coifman2006diffusion}。令$P=D^{-1}W$，则$P_{ij}$是从节点$i$一步转移到$j$的概率。$P^t$给出$t$步转移概率。若无向加权图连通且各节点度为正，平稳分布为$\pi_k=d_k/\sum_jd_j>0$。对整数步数$t\geq1$，用该分布加权的扩散距离定义为
 \begin{equation}
  D_t^2(i,j)=\sum_{k}\frac{(P^t_{ik}-P^t_{jk})^2}{\pi_k}.
  \label{eq:diffusion-distance}
 \end{equation}
-它比较两个节点经过$t$步后到达全图各位置的概率分布。短路边只影响局部转移，若其影响不足以改变多步分布，扩散距离会比单次欧氏距离稳定。$t$过小只看到噪声邻域，$t$过大则不同区域的分布可能都接近平稳分布，距离失去区分度。扩散坐标由$P$的非平凡特征向量按特征值的$t$次幂缩放得到。它因此同时受邻域尺度、权重核和时间尺度影响。
+它比较两个节点经过$t$步后到达全图各位置的概率分布。一条边直接改变一步转移概率，其影响会通过矩阵乘积传播到多步分布。因此扩散距离也会受到捷径污染，不能因采用多步随机游走就认定其稳健。$t$过小只看到噪声邻域，若链不可约且非周期，$t$很大时各起点分布都趋向平稳分布，距离会失去区分度。二分图上的普通游走可能有周期，需要通过自环或懒惰游走消除周期后才能使用这一收敛解释。扩散坐标由$P$的非平凡特征向量按特征值的$t$次幂缩放得到。它因此同时受邻域尺度、权重核和时间尺度影响。
 
 \section{概率邻域可视化}
 \subsection{t-SNE的邻域概率目标}
@@ -154,13 +155,20 @@ t-SNE的目标是让高维空间中的近邻概率与低维空间中的近邻概
  p_{j\mid i}=\frac{\exp(-\|\bm x_i-\bm x_j\|_2^2/2\sigma_i^2)}{\sum_{\ell\ne i}\exp(-\|\bm x_i-\bm x_\ell\|_2^2/2\sigma_i^2)}.
  \label{eq:tsne-high-prob}
 \end{equation}
-$\sigma_i$通常按给定困惑度选择，使每个点的有效邻域大小相近。对称概率为$p_{ij}=(p_{j\mid i}+p_{i\mid j})/(2n)$。低维点$y_i\in\mathbb R^q$使用重尾相似度
+这里$n\geq2$是样本数，$\sigma_i>0$是第$i$个点的局部带宽，规定$p_{i\mid i}=0$。困惑度由该条件分布的熵定义为
+\begin{equation}
+ \operatorname{Perp}_i=
+ \exp\left(-\sum_{\substack{j=1\\j\ne i}}^{n}
+ p_{j\mid i}\log p_{j\mid i}\right).
+ \label{eq:tsne-perplexity}
+\end{equation}
+式\eqref{eq:tsne-perplexity}中的对数取自然对数，约定$0\log0=0$。$\operatorname{Perp}_i$是无量纲的有效候选数，介于$1$与$n-1$之间。实际通常在这个范围内部选取目标值，再逐点调节$\sigma_i$使困惑度接近目标。重复点或相同的近邻距离可能限制可达到的范围，因此不能保证任意目标都能精确实现。对称概率为$p_{ij}=(p_{j\mid i}+p_{i\mid j})/(2n)$。低维点$y_i\in\mathbb R^q$使用重尾相似度
 \begin{equation}
  q_{ij}=\frac{(1+\|y_i-y_j\|_2^2)^{-1}}{\sum_{a\ne b}(1+\|y_a-y_b\|_2^2)^{-1}},
  \qquad i\ne j .
  \label{eq:tsne-low-prob}
 \end{equation}
-优化两个分布的KL散度
+令$P=(p_{ij})$、$Q=(q_{ij})$表示有序点对上的概率分布，它们的对角项为零，非对角项总和为一。优化两者的库尔贝克—莱布勒散度（Kullback--Leibler Divergence，KL散度）
 \begin{equation}
  \operatorname{KL}(P\|Q)=\sum_{i\ne j}p_{ij}\log\frac{p_{ij}}{q_{ij}}.
  \label{eq:tsne-objective}
@@ -174,7 +182,7 @@ UMAP以局部模糊邻域图为输入，再在低维空间优化相似度匹配\
  \qquad a,b>0,
  \label{eq:umap-low-similarity}
 \end{equation}
-并用交叉熵型目标奖励高维相邻点在低维相邻，惩罚低维中被错误连接的点对。参数$a,b$由目标的最小距离和曲线拟合确定，实际软件还涉及负采样和优化调度。UMAP通常比t-SNE更重视邻域图的连通结构，也可在降维模型上近似变换新样本。它仍然依赖距离、邻域数、最小距离和随机优化。图中的簇间距离与密度受这些选择影响，不能据此断言流形的真实体积或类别概率。
+并用交叉熵型目标奖励高维相邻点在低维相邻，惩罚低维中被错误连接的点对。参数$a,b$由目标的最小距离和曲线拟合确定，实际软件还涉及负采样和优化调度。常用UMAP实现还提供对新样本的近似变换，需要固定训练得到的表示及其邻域规则。两种方法都依赖邻域关系，不能仅根据算法名称断言哪一种更忠实地保持全局结构。它仍然依赖距离、邻域数、最小距离和随机优化。图中的簇间距离与密度受这些选择影响，不能据此断言流形的真实体积或类别概率。
 
 \section{方法选择与结果检查}
 
@@ -198,7 +206,7 @@ Diffusion Maps & 多步转移关系 & 时间尺度过小或过大会失去信息
 \end{tabular}
 \end{table}
 
-评价流形表示应分成几何评价和任务评价。几何评价可检查邻域保持率、图连通分量、局部重构误差、成对距离相关性或不同随机种子的稳定性。任务评价应在训练、验证和测试数据上分别完成。若表示用于故障预测，应比较原始特征、PCA和流形表示在相同数据划分、相同信息可用性和相同分类器下的测试性能。标签可分性提高不代表因果机制被恢复。按转速或设备划分测试集，才能检查表示是否只编码了设备身份或运行条件。
+评价流形表示应分成几何评价和任务评价。几何评价可检查邻域保持率、图连通分量、局部重构误差、成对距离相关性或不同随机种子的稳定性。用于归纳预测时，应只在训练输入上拟合降维及预处理，再按固定规则变换验证和测试样本。Isomap、LLE等基本算法首先为已参与拟合的点集求坐标，新样本需要额外的外推规则。若将测试输入共同用于建图，应声明这是转导评价，不能与仅访问训练输入的方法混作同条件比较。若表示用于故障预测，应比较原始特征、PCA和流形表示在相同数据划分、相同信息可用性和相同分类器下的测试性能。标签可分性提高不代表因果机制被恢复。按转速或设备划分测试集，才能检查表示是否只编码了设备身份或运行条件。
 
 \section{发展脉络与边界}
 

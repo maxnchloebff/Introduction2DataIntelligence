@@ -115,7 +115,7 @@ $J_q$表示每个样本的最小平均平方重建误差，$r_q$是解释方差�
 \end{equation}
 $U_r$的列是非零特征值对应的协方差特征向量。经济分解只保留非零奇异方向，所以每个矩阵乘积的维度明确。若需要表示零特征值方向，可另补足$U_r$为$\R^d$的一组正交基，这些方向不由数据确定。
 
-直接对$A$作SVD可以避免形成协方差矩阵。显式构造$AA^{\mathsf T}$会平方非零奇异值的比值，可能损失较弱方向的数值精度。$d\gg n$时，可先分解$n\times n$矩阵$A^{\mathsf T}A$。若$A^{\mathsf T}A\bm v_j=s_j^2\bm v_j$且$s_j>0$，则$\bm u_j=A\bm v_j/s_j$是对应的单位左奇异向量。仅对正特征值使用此式。
+直接对$A$作SVD可以避免形成协方差矩阵。显式构造$AA^{\mathsf T}$会平方非零奇异值的比值，可能损失较弱方向的数值精度。$d\gg n$时，若优先考虑矩阵规模，可分解$n\times n$矩阵$A^{\mathsf T}A$，但它同样会平方非零奇异值的比值。需要准确计算弱方向时，直接对$A$作SVD通常更合适。若$A^{\mathsf T}A\bm v_j=s_j^2\bm v_j$且$s_j>0$，则$\bm u_j=A\bm v_j/s_j$是对应的单位左奇异向量。仅对正特征值使用此式。
 
 由于$A$已中心化，$A\bm1=\bm0$，所以$\operatorname{rank}(A)\le\min(d,n-1)$。这里$\bm1\in\R^n$是全$1$向量。非零主成分数至多为$\min(d,n-1)$。特征值重复时，数据只能确定相应特征子空间，不能确定其中唯一的一组方向。若需白化，令$\bm t_i=\Lambda_q^{-1/2}\bm z_i$，其中$\Lambda_q=\diag(\lambda_1,\ldots,\lambda_q)$且所有保留特征值为正。此时得分协方差成为$I_q$。白化会放大小特征值方向上的误差，与仅投影不同，必须检查数值稳定性。
 
@@ -229,6 +229,8 @@ $\bm m\in\R^q$是后验均值，$V_z\in\R^{q\times q}$是后验协方差。$M\in
 \end{equation}
 这里$I_{|M_0|}$是未观测坐标数阶的单位矩阵，第二项表示这些坐标各自的观测噪声。若传感器因极端读数而更容易缺测，缺失模式本身含有关于数值的信息，忽略该机制可能使条件预测偏差。
 
+缺失坐标的均值预测来自模型中的共同变化结构，协方差则描述在已观测坐标给定后仍未确定的部分。它们都以$W,\bm\mu,\sigma^2$已经确定为条件，不保证恢复每个缺失真值。
+
 PCA与PPCA在应用新样本时，都应沿用训练数据估计的中心化和缩放统计量。温度与振动单位不同，直接做协方差PCA会受到量纲支配。标准化相当于改变了几何误差的权重，是否适合任务需要说明。训练重建误差随$q$增大不会增加，因此仅用它最小化误差会偏向保留更多方向。选择$q$时，应结合预设的压缩要求、解释方差比例和独立验证数据上的下游表现。低方差方向可能包含故障信号，高方差方向也可能主要是负载变化。
 
 PPCA的各向同性噪声条件较强。因子分析允许不同观测维度有不同噪声方差，但其估计通常不再是同一简单特征分解。若结构弯曲，增加主成分只能增加线性子空间维度，本章余下部分通过核函数改变表示空间，再讨论相应的方差与投影计算。
@@ -262,7 +264,7 @@ PPCA的各向同性噪声条件较强。因子分析允许不同观测维度有�
  T\bm u=\frac1n\sum_i\psi_i\langle\psi_i,\bm u\rangle_{\mathcal H}.
  \label{eq:kpca-covariance-operator}
 \end{equation}
-它将一个方向$\bm u\in\mathcal H$映为另一个特征空间向量。单位方向的投影方差为$\langle\bm u,T\bm u\rangle$。正特征值方向满足$T\bm u=\eta\bm u$，$\eta>0$。由此$\bm u=\eta^{-1}T\bm u$必在$\psi_1,\ldots,\psi_n$张成的空间中。
+这里$T$作用于特征空间中的方向$\bm u\in\mathcal H$。它先计算每个中心化特征在$\bm u$上的内积，再以这些标量为权重平均特征向量。因而$\langle\bm u,T\bm u\rangle=n^{-1}\sum_i\langle\bm u,\psi_i\rangle^2$，恰是单位方向的经验投影方差。这个等式把前面的原空间方差最大化推广到特征空间，计算仍只需要内积。正特征值方向满足$T\bm u=\eta\bm u$，$\eta>0$。由此$\bm u=\eta^{-1}T\bm u$必在$\psi_1,\ldots,\psi_n$张成的空间中。
 
 定义线性映射$\Phi_c:\R^n\to\mathcal H$，$\Phi_c\bm v=\sum_i v_i\psi_i$。其伴随映射$\Phi_c^*:\mathcal H\to\R^n$将$\bm u$映为$(\langle\psi_1,\bm u\rangle,\ldots,\langle\psi_n,\bm u\rangle)^{\mathsf T}$，所以$K_c=\Phi_c^*\Phi_c$及$T=\Phi_c\Phi_c^*/n$。记$r_c=\operatorname{rank}(K_c)\le n-1$。按降序排列其正特征值，取单位正交特征向量$\bm v_j\in\R^n$，$j=1,\ldots,r_c$，满足
 \begin{equation}

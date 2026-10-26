@@ -1,13 +1,13 @@
-\chapter{核主成分分析：在特征空间中寻找变化}
+\chapter{核主成分分析}
 \label{chap:kpca}
 \begin{quote}\small
 \textit{本章摘要。}核主成分分析在核诱导的特征空间中做PCA。本章从特征空间协方差算子出发，推导中心化Gram矩阵的特征分解、单位方向的归一化和新样本得分，并说明原空间重建为什么需要额外假设。
 \end{quote}
 
-线性PCA只能选择原坐标的线性组合。若一维观测的主要结构与平方值有关，把$x$压缩到一个线性坐标不能直接表示这种变化。核主成分分析（Kernel Principal Component Analysis，kPCA）先在$\phi(\bm x)$所在的特征空间中定义方差，再利用核内积计算主成分\cite{scholkopf1998kpca}。它使用上一章的确定性PCA目标，不自动提供概率生成模型。MML第10.5节的高维计算和第10.8节的核化讨论提供衔接，所给核方法网页列出了kPCA的核展开形式\cite{deisenroth2020mml,zheng2021kernel}。
+线性PCA选择原坐标的线性组合。若希望描述的变化与输入平方值有关，就需要先改变表示。例如，一维输入$x$的线性坐标仍只能保留其线性变化，平方特征则可以表达与幅值大小有关、与正负号无关的变化。这个例子说明表示选择的差异，一维到一维本身不构成降维。核主成分分析（Kernel Principal Component Analysis，kPCA）先在$\phi(\bm x)$所在的特征空间中定义方差，再利用核内积计算主成分\cite{scholkopf1998kpca}。它使用上一章的确定性PCA目标，不自动提供概率生成模型。MML第10.5节的高维计算和第10.8节的核化讨论提供衔接，所给核方法网页列出了kPCA的核展开形式\cite{deisenroth2020mml,zheng2021kernel}。
 
-\section{为什么核矩阵也需要中心化}
-令训练特征均值与中心化特征为
+\section{核矩阵的特征中心化}
+设训练输入为$\bm x_i\in\R^d$，$i=1,\ldots,n$，其中$n\ge2$。取实值对称半正定核$k$和相应特征映射$\phi:\R^d\to\mathcal H$，令$K\in\R^{n\times n}$满足$K_{ij}=k(\bm x_i,\bm x_j)$。PCA要度量围绕均值的变化，因此先定义训练特征均值与中心化特征：
 \begin{equation}
  \bar\phi=\frac1n\sum_i\phi(\bm x_i),\qquad
  \psi_i=\phi(\bm x_i)-\bar\phi.
@@ -33,7 +33,7 @@ $H$对样本维度去均值，满足$H^2=H$。$K_c$是中心化特征的Gram矩�
 \end{equation}
 它将一个方向$\bm u\in\mathcal H$映为另一个特征空间向量。单位方向的投影方差为$\langle\bm u,T\bm u\rangle$。正特征值方向满足$T\bm u=\eta\bm u$，$\eta>0$。由此$\bm u=\eta^{-1}T\bm u$必在$\psi_1,\ldots,\psi_n$张成的空间中。
 
-定义线性映射$\Phi_c:\R^n\to\mathcal H$，$\Phi_c\bm v=\sum_i v_i\psi_i$。其伴随映射返回各内积，满足$K_c=\Phi_c^*\Phi_c$及$T=\Phi_c\Phi_c^*/n$。若
+定义线性映射$\Phi_c:\R^n\to\mathcal H$，$\Phi_c\bm v=\sum_i v_i\psi_i$，其中$\bm v\in\R^n$收集展开系数。其伴随映射$\Phi_c^*:\mathcal H\to\R^n$返回各内积，即$\Phi_c^*\bm u=(\langle\psi_1,\bm u\rangle,\ldots,\langle\psi_n,\bm u\rangle)^{\mathsf T}$。因此$K_c=\Phi_c^*\Phi_c$及$T=\Phi_c\Phi_c^*/n$，两个乘积分别作用于样本系数空间和特征空间。若
 \begin{equation}
  K_c\bm v_j=\kappa_j\bm v_j,\qquad
  \|\bm v_j\|_2=1,\quad\kappa_j>0,
@@ -55,9 +55,9 @@ $H$对样本维度去均值，满足$H^2=H$。$K_c$是中心化特征的Gram矩�
  =\sqrt{\kappa_j}\,v_{ij}.
  \label{eq:kpca-training-score}
 \end{equation}
-由于正特征值特征向量与$\bm1$正交，得分均值为零，方差为$\kappa_j/n$。特征空间平均重建误差为$\sum_{j>q}\kappa_j/n$，只对非零谱求和。
+这里$v_{ij}$为$\bm v_j$的第$i$个分量。由于正特征值特征向量与$\bm1$正交，得分均值为零，方差为$\kappa_j/n$。令$r_c=\operatorname{rank}(K_c)$，保留方向数须满足$1\le q\le r_c$。特征空间平均平方重建误差为$\sum_{j=q+1}^{r_c}\kappa_j/n$，即被舍弃方向的方差之和。若$r_c=0$，训练特征没有可提取的非零方差方向。
 
-\section{新样本怎样使用训练均值}
+\section{新样本的中心化与投影}
 对新输入$\bm x$，定义$\bm k_{\bm x}\in\R^n$，其第$i$项为$k(\bm x_i,\bm x)$。新特征仍减去训练均值$\bar\phi$。中心化核向量是
 \begin{equation}
  \tilde{\bm k}_{\bm x}=\bm k_{\bm x}-\frac1nK\bm1
@@ -98,7 +98,7 @@ $H$对样本维度去均值，满足$H^2=H$。$K_c$是中心化特征的Gram矩�
 \label{fig:kpca-square-map}
 \end{figure}
 
-\section{得分能算出，为什么原坐标不一定能重建}
+\section{原像重建与核参数选择}
 在特征空间中，重建可写成
 \begin{equation}
  \hat\phi(\bm x)=\bar\phi+\sum_{j=1}^qz_j(\bm x)\bm u_j.
